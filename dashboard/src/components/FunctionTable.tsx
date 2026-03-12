@@ -13,17 +13,21 @@ export function FunctionTable({ platforms }: Props) {
   const [days, setDays] = useState(7);
   const [data, setData] = useState<PerfFnStat[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('avg_p95_ms');
   const [sortAsc, setSortAsc] = useState(false);
   const [filter, setFilter] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setError(null);
     api
       .functions(selectedPlatform === 'all' ? undefined : selectedPlatform, days, 50)
-      .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load function data')); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedPlatform, days]);
 
   function handleSort(key: SortKey) {
@@ -93,6 +97,7 @@ export function FunctionTable({ platforms }: Props) {
       </div>
 
       {loading && <div style={styles.loading}>Loading…</div>}
+      {error && <div style={styles.error}>⚠ {error}</div>}
 
       <div style={styles.tableWrap}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -174,6 +179,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#e2e8f0', padding: '6px 10px', fontSize: 13, cursor: 'pointer',
   },
   loading: { color: '#64748b', fontSize: 13, marginBottom: 8 },
+  error: {
+    color: '#fca5a5', fontSize: 13, marginBottom: 8,
+    background: '#450a0a', border: '1px solid #7f1d1d',
+    borderRadius: 6, padding: '8px 12px',
+  },
   tableWrap: { borderRadius: 8, overflow: 'auto', border: '1px solid #1e2533' },
   th: {
     background: '#1e2533', textAlign: 'left', padding: '8px 12px',

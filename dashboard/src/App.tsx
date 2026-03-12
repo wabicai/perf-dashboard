@@ -61,10 +61,13 @@ export function App() {
   const [tab, setTab] = useState<Tab>('trend');
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [summary, setSummary] = useState<PerfJob[]>([]);
+  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.platforms().then(setPlatforms).catch(console.error);
-    api.summary().then(setSummary).catch(console.error);
+    Promise.all([
+      api.platforms().then(setPlatforms),
+      api.summary().then(setSummary),
+    ]).catch((e) => setInitError(String(e?.message || 'Failed to connect to analytics worker')));
   }, []);
 
   return (
@@ -78,6 +81,17 @@ export function App() {
               OneKey Performance Analytics
             </span>
           </div>
+
+          {/* Error banner */}
+          {initError && (
+            <div style={{
+              margin: '12px 0', padding: '10px 14px', borderRadius: 6,
+              background: '#450a0a', border: '1px solid #7f1d1d',
+              color: '#fca5a5', fontSize: 13,
+            }}>
+              ⚠ {initError}
+            </div>
+          )}
 
           {/* Summary cards */}
           {summary.length > 0 && (

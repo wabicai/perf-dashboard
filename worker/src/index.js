@@ -202,20 +202,23 @@ async function handlePlatforms(env) {
 }
 
 async function handleSummary(env) {
-  // Latest job per platform — use job_id tie-break to guarantee one row per platform
-  // even when two jobs share the same started_at timestamp.
+  // Latest job per platform using CTEs — avoids correlated subquery O(P×N).
+  // CTE 1: max started_at per platform.
+  // CTE 2: max job_id among those rows (tie-break for same timestamp).
   const { results } = await env.DB.prepare(
-    `SELECT j.*
+    `WITH latest AS (
+       SELECT platform, MAX(started_at) AS max_at
+       FROM perf_jobs GROUP BY platform
+     ),
+     latest_jobs AS (
+       SELECT j.platform, MAX(j.job_id) AS max_job_id
+       FROM perf_jobs j
+       JOIN latest ON j.platform = latest.platform AND j.started_at = latest.max_at
+       GROUP BY j.platform
+     )
+     SELECT j.*
      FROM perf_jobs j
-     INNER JOIN (
-       SELECT platform, MAX(job_id) AS max_job_id
-       FROM perf_jobs
-       WHERE started_at = (
-         SELECT MAX(started_at) FROM perf_jobs j2
-         WHERE j2.platform = perf_jobs.platform
-       )
-       GROUP BY platform
-     ) latest ON j.job_id = latest.max_job_id
+     JOIN latest_jobs ON j.job_id = latest_jobs.max_job_id
      ORDER BY j.platform`,
   ).all();
   return json(results);

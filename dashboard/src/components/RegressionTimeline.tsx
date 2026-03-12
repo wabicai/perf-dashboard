@@ -34,14 +34,18 @@ export function RegressionTimeline({ platforms }: Props) {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<PerfJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setError(null);
     api
       .regressions(selectedPlatform === 'all' ? undefined : selectedPlatform, days)
-      .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load regression data')); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedPlatform, days]);
 
   return (
@@ -70,8 +74,9 @@ export function RegressionTimeline({ platforms }: Props) {
       </div>
 
       {loading && <div style={styles.loading}>Loading…</div>}
+      {error && <div style={styles.error}>⚠ {error}</div>}
 
-      {!loading && data.length === 0 && (
+      {!loading && !error && data.length === 0 && (
         <div style={{ color: '#34d399', textAlign: 'center', padding: 40, fontSize: 15 }}>
           ✅ No regressions in selected range
         </div>
@@ -175,6 +180,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#e2e8f0', padding: '6px 10px', fontSize: 13, cursor: 'pointer',
   },
   loading: { color: '#64748b', fontSize: 13, marginBottom: 8 },
+  error: {
+    color: '#fca5a5', fontSize: 13, marginBottom: 8,
+    background: '#450a0a', border: '1px solid #7f1d1d',
+    borderRadius: 6, padding: '8px 12px',
+  },
   card: {
     background: '#141820', border: '1px solid #1e2533',
     borderLeft: '3px solid #64748b', borderRadius: 8,

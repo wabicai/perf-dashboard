@@ -33,15 +33,19 @@ export function TrendChart({ platforms }: Props) {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<PerfJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setError(null);
     api
       .trend(selectedPlatform === 'all' ? undefined : selectedPlatform, days)
-      .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [selectedPlatform, days, metric]);
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load trend data')); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedPlatform, days]);
 
   // Group by platform for multi-line chart
   const platformsToShow: Platform[] =
@@ -107,6 +111,7 @@ export function TrendChart({ platforms }: Props) {
       </div>
 
       {loading && <div style={styles.loading}>Loading…</div>}
+      {error && <div style={styles.error}>⚠ {error}</div>}
 
       <ResponsiveContainer width="100%" height={360}>
         <LineChart data={mergedArr} margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
@@ -208,6 +213,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   loading: {
     color: '#64748b', fontSize: 13, marginBottom: 8,
+  },
+  error: {
+    color: '#fca5a5', fontSize: 13, marginBottom: 8,
+    background: '#450a0a', border: '1px solid #7f1d1d',
+    borderRadius: 6, padding: '8px 12px',
   },
   regressionBanner: {
     marginTop: 12, padding: '8px 12px', background: '#1a1a2e',
