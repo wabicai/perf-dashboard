@@ -14,5 +14,8 @@
     "db:init": "yarn workspace perf-analytics-worker db:init",
     "db:init:remote": "yarn workspace perf-analytics-worker db:init:remote"
   },
-  "packageManager": "yarn@4.9.1"
+  "packageManager": "yarn@4.9.1",
+  "dependencies": {
+    "wrangler": "4"
+  }
 }

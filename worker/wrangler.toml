@@ -6,7 +6,7 @@ compatibility_date = "2024-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "perf-analytics"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "2db0a717-8da2-47e1-a6ad-ae0c13975d98"
 
 # Optional: set PERF_SECRET via `wrangler secret put PERF_SECRET`
 # [vars]
