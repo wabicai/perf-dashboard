@@ -2,6 +2,15 @@
 
 Performance analytics for OneKey — Cloudflare Worker (D1) backend + React/Recharts dashboard.
 
+## 🔗 线上地址
+
+| 服务 | 地址 |
+|------|------|
+| **Dashboard**（看图表） | https://perf-dashboard.pages.dev |
+| **Worker API** | https://perf-analytics.kaisheng-cai.workers.dev/api/health |
+| **Cloudflare D1**（看数据） | https://dash.cloudflare.com → Storage & Databases → D1 → `perf-analytics` |
+| **代码仓库** | https://github.com/wabicai/perf-dashboard |
+
 ## Architecture
 
 ```
