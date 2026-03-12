@@ -1,0 +1,13 @@
+name = "perf-analytics"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# D1 database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "perf-analytics"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Optional: set PERF_SECRET via `wrangler secret put PERF_SECRET`
+# [vars]
+# PERF_SECRET = "your-secret-here"

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.wrangler/
+.env
+.env.local
+*.log
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
