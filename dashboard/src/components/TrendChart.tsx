@@ -1,23 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { format } from 'date-fns';
 import { api } from '../api';
+import { Select } from './ui/Select';
+import { ErrorBanner } from './ui/ErrorBanner';
+import { ChartSkeleton } from './ui/Skeleton';
 import type { PerfJob, Platform } from '../types';
 
 const PLATFORM_COLORS: Record<string, string> = {
-  ios:     '#60a5fa',
+  ios: '#60a5fa',
   android: '#34d399',
-  web:     '#f59e0b',
-  ext:     '#a78bfa',
+  web: '#f59e0b',
+  ext: '#a78bfa',
   desktop: '#f472b6',
 };
 
 const METRICS = [
   { key: 'start_ms', label: 'Startup (tokensStartMs)', unit: 'ms' },
-  { key: 'span_ms',  label: 'Refresh span (tokensSpanMs)', unit: 'ms' },
+  { key: 'span_ms', label: 'Refresh span (tokensSpanMs)', unit: 'ms' },
   { key: 'fc_count', label: 'Function calls', unit: '' },
 ] as const;
 
@@ -25,9 +28,10 @@ type MetricKey = (typeof METRICS)[number]['key'];
 
 interface Props {
   platforms: string[];
+  onJobClick?: (jobId: string) => void;
 }
 
-export function TrendChart({ platforms }: Props) {
+export function TrendChart({ platforms, onJobClick }: Props) {
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
   const [metric, setMetric] = useState<MetricKey>('start_ms');
   const [days, setDays] = useState(30);
@@ -47,11 +51,18 @@ export function TrendChart({ platforms }: Props) {
     return () => { cancelled = true; };
   }, [selectedPlatform, days]);
 
-  // Group by platform for multi-line chart
   const platformsToShow: Platform[] =
     selectedPlatform === 'all' ? platforms : [selectedPlatform];
 
-  // Build chart data: one point per job, keyed by timestamp
+  // Build ts→job_id lookup
+  const tsToJobId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const job of data) {
+      map[String(job.started_at)] = job.job_id;
+    }
+    return map;
+  }, [data]);
+
   const chartData = data.map((job) => ({
     ts: job.started_at,
     label: format(new Date(job.started_at), 'MM/dd HH:mm'),
@@ -67,24 +78,37 @@ export function TrendChart({ platforms }: Props) {
     commit: job.commit_sha ? job.commit_sha.slice(0, 7) : '',
   }));
 
-  // When showing all platforms, flatten into { label, ios, android, ... }
   const merged: Record<string, Record<string, number | string | null>> = {};
   for (const row of chartData) {
     const key = String(row.ts);
     merged[key] = merged[key] || { ts: row.ts, label: row.label };
     merged[key][row.platform] = row.value ?? null;
+    if (row.threshold != null) merged[key]['threshold'] = row.threshold;
     if (row.regression) merged[key][`${row.platform}_reg`] = 1;
   }
   const mergedArr = Object.values(merged).sort((a, b) =>
     Number(a.ts) - Number(b.ts),
   );
 
+  // Compute average threshold for reference line
+  const thresholds = chartData.filter((r) => r.threshold != null).map((r) => r.threshold!);
+  const avgThreshold = thresholds.length > 0
+    ? thresholds.reduce((a, b) => a + b, 0) / thresholds.length
+    : null;
+
   const metricInfo = METRICS.find((m) => m.key === metric)!;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleDotClick = (_e: any, payload: any) => {
+    const ts = String(payload?.payload?.ts ?? payload?.ts);
+    const jobId = tsToJobId[ts];
+    if (jobId && onJobClick) onJobClick(jobId);
+  };
+
   return (
-    <div style={{ padding: '0 4px' }}>
+    <div>
       {/* Controls */}
-      <div style={styles.controls}>
+      <div className="flex flex-wrap gap-3 mb-5 items-center">
         <Select
           label="Platform"
           value={selectedPlatform}
@@ -110,55 +134,77 @@ export function TrendChart({ platforms }: Props) {
         />
       </div>
 
-      {loading && <div style={styles.loading}>Loading…</div>}
-      {error && <div style={styles.error}>⚠ {error}</div>}
+      {loading && <ChartSkeleton />}
+      {error && <ErrorBanner message={error} />}
 
-      <ResponsiveContainer width="100%" height={360}>
-        <LineChart data={mergedArr} margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
-          <XAxis
-            dataKey="label"
-            tick={{ fill: '#94a3b8', fontSize: 11 }}
-            interval="preserveStartEnd"
-          />
-          <YAxis
-            tick={{ fill: '#94a3b8', fontSize: 11 }}
-            tickFormatter={(v) => metricInfo.unit ? `${v}${metricInfo.unit}` : String(v)}
-          />
-          <Tooltip
-            contentStyle={{ background: '#1e2533', border: '1px solid #334155', borderRadius: 8 }}
-            labelStyle={{ color: '#cbd5e1', fontSize: 12 }}
-            itemStyle={{ fontSize: 12 }}
-            formatter={(v: number) =>
-              metricInfo.unit ? `${Math.round(v)}${metricInfo.unit}` : String(Math.round(v))
-            }
-          />
-          <Legend wrapperStyle={{ fontSize: 12, color: '#94a3b8' }} />
+      {!loading && !error && (
+        <div className="bg-perf-card border border-perf-surface rounded-lg p-4">
+          <ResponsiveContainer width="100%" height={360}>
+            <LineChart data={mergedArr} margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-perf-surface)" />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 11 }}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 11 }}
+                tickFormatter={(v) => metricInfo.unit ? `${v}${metricInfo.unit}` : String(v)}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: 'var(--color-perf-surface)',
+                  border: '1px solid var(--color-perf-border)',
+                  borderRadius: 8,
+                }}
+                labelStyle={{ color: 'var(--color-perf-text)', fontSize: 12 }}
+                itemStyle={{ fontSize: 12 }}
+                formatter={(v: number) =>
+                  metricInfo.unit ? `${Math.round(v)}${metricInfo.unit}` : String(Math.round(v))
+                }
+              />
+              <Legend wrapperStyle={{ fontSize: 12, color: 'var(--color-perf-text-dim)' }} />
 
-          {platformsToShow.map((p) => (
-            <Line
-              key={p}
-              type="monotone"
-              dataKey={p}
-              name={p}
-              stroke={PLATFORM_COLORS[p] || '#94a3b8'}
-              strokeWidth={2}
-              dot={false}
-              connectNulls
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+              {avgThreshold != null && metric !== 'fc_count' && (
+                <ReferenceLine
+                  y={avgThreshold}
+                  stroke="var(--color-status-regression)"
+                  strokeDasharray="6 3"
+                  label={{ value: 'Threshold', fill: 'var(--color-status-regression)', fontSize: 11, position: 'right' }}
+                />
+              )}
+
+              {platformsToShow.map((p) => (
+                <Line
+                  key={p}
+                  type="monotone"
+                  dataKey={p}
+                  name={p}
+                  stroke={PLATFORM_COLORS[p] || 'var(--color-perf-text-dim)'}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{
+                    r: 5,
+                    cursor: 'pointer',
+                    onClick: handleDotClick,
+                  }}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {/* Regression events list */}
       {chartData.filter((r) => r.regression).length > 0 && (
-        <div style={styles.regressionBanner}>
-          <span style={{ color: '#fca5a5', fontWeight: 600, marginRight: 8 }}>⚠ Regressions in range:</span>
+        <div className="mt-3 px-3 py-2 bg-perf-reg-bg border border-err-border rounded-lg text-xs flex flex-wrap items-center gap-1.5">
+          <span className="text-err-text font-semibold mr-2">⚠ Regressions in range:</span>
           {chartData
             .filter((r) => r.regression)
             .slice(0, 5)
             .map((r) => (
-              <span key={`${r.ts}-${r.platform}`} style={styles.regTag}>
+              <span key={`${r.ts}-${r.platform}`} className="bg-err-bg text-err-text rounded-md px-2 py-0.5 text-[11px]">
                 {r.platform} {r.label} {r.commit && `(${r.commit})`}
               </span>
             ))}
@@ -167,65 +213,3 @@ export function TrendChart({ platforms }: Props) {
     </div>
   );
 }
-
-// ── tiny helpers ──────────────────────────────────────────────────────────
-
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label style={styles.selectLabel}>
-      <span style={styles.selectLabelText}>{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={styles.select}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  controls: {
-    display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20, alignItems: 'center',
-  },
-  selectLabel: {
-    display: 'flex', flexDirection: 'column', gap: 4,
-  },
-  selectLabelText: {
-    fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em',
-  },
-  select: {
-    background: '#1e2533', border: '1px solid #334155', borderRadius: 6,
-    color: '#e2e8f0', padding: '6px 10px', fontSize: 13, cursor: 'pointer',
-  },
-  loading: {
-    color: '#64748b', fontSize: 13, marginBottom: 8,
-  },
-  error: {
-    color: '#fca5a5', fontSize: 13, marginBottom: 8,
-    background: '#450a0a', border: '1px solid #7f1d1d',
-    borderRadius: 6, padding: '8px 12px',
-  },
-  regressionBanner: {
-    marginTop: 12, padding: '8px 12px', background: '#1a1a2e',
-    border: '1px solid #7f1d1d', borderRadius: 8, fontSize: 12,
-    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6,
-  },
-  regTag: {
-    background: '#450a0a', color: '#fca5a5', borderRadius: 4,
-    padding: '2px 8px', fontSize: 11,
-  },
-};

@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-perf-bg: #0a0d14;
+  --color-perf-card: #141820;
+  --color-perf-surface: #1e2533;
+  --color-perf-border: #334155;
+  --color-perf-muted: #64748b;
+  --color-perf-text: #e2e8f0;
+  --color-perf-text-dim: #94a3b8;
+  --color-perf-text-faint: #475569;
+  --color-perf-accent: #60a5fa;
+  --color-perf-row-alt: #0f1420;
+  --color-perf-hover: #1a2030;
+  --color-perf-reg-bg: #1a1a2e;
+  --color-status-ok: #34d399;
+  --color-status-regression: #ef4444;
+  --color-status-failed: #f59e0b;
+  --color-status-info: #60a5fa;
+  --color-status-p2: #f59e0b;
+  --color-err-bg: #450a0a;
+  --color-err-border: #7f1d1d;
+  --color-err-text: #fca5a5;
+}
+
+body {
+  background: var(--color-perf-bg);
+  color: var(--color-perf-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+input[type="date"] {
+  color-scheme: dark;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-perf-accent) 35%, transparent);
+  color: var(--color-perf-text);
+}
+
+/* Modal animation */
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-modal-in {
+  animation: modal-in 0.2s ease-out;
+}
+.animate-backdrop-in {
+  animation: backdrop-in 0.15s ease-out;
+}

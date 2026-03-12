@@ -24,6 +24,24 @@ export interface PerfJob {
   created_at?: number;
 }
 
+export interface PerfRun {
+  job_id: string;
+  session_id: string | null;
+  run_index: number | null;
+  start_ms: number | null;
+  span_ms: number | null;
+  fc_count: number | null;
+}
+
+export interface PerfMark {
+  job_id: string;
+  session_id: string;
+  mark_name: string;
+  since_start_ms: number | null;
+  ts: number | null;
+  absolute_time: string | null;
+}
+
 export interface PerfFnStat {
   fn_name: string;
   fn_file: string | null;
@@ -34,6 +52,7 @@ export interface PerfFnStat {
   max_p95_ms: number | null;
   avg_avg_ms: number | null;
   avg_total_ms: number | null;
+  delta_avg_p95_ms?: number | null;
 }
 
 export interface CompareRow {
@@ -44,6 +63,20 @@ export interface CompareRow {
   avg_span_ms: number | null;
   avg_fc_count: number | null;
   regression_count: number;
+}
+
+export interface JobDetailResponse {
+  job: PerfJob;
+  runs: PerfRun[];
+  fn_stats: PerfFnStat[];
+  marks: PerfMark[];
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export type NavTab = 'trend' | 'compare' | 'functions' | 'regressions';

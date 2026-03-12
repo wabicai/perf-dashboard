@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { Select } from './ui/Select';
+import { ErrorBanner } from './ui/ErrorBanner';
+import { TableSkeleton } from './ui/Skeleton';
 import type { PerfFnStat } from '../types';
 
 type SortKey = keyof PerfFnStat;
@@ -8,10 +11,14 @@ interface Props {
   platforms: string[];
 }
 
+const PAGE_SIZE = 20;
+
 export function FunctionTable({ platforms }: Props) {
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
   const [days, setDays] = useState(7);
   const [data, setData] = useState<PerfFnStat[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('avg_p95_ms');
@@ -23,12 +30,23 @@ export function FunctionTable({ platforms }: Props) {
     setLoading(true);
     setError(null);
     api
-      .functions(selectedPlatform === 'all' ? undefined : selectedPlatform, days, 50)
-      .then((d) => { if (!cancelled) setData(d); })
+      .functions(
+        selectedPlatform === 'all' ? undefined : selectedPlatform,
+        days,
+        PAGE_SIZE,
+        page,
+        'previous',
+      )
+      .then((res) => {
+        if (!cancelled) {
+          setData(res.data);
+          setTotal(res.total);
+        }
+      })
       .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load function data')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedPlatform, days]);
+  }, [selectedPlatform, days, page]);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortAsc((v) => !v);
@@ -51,6 +69,8 @@ export function FunctionTable({ platforms }: Props) {
     return sortAsc ? av - bv : bv - av;
   });
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   const cols: { key: SortKey; label: string; fmt?: (v: number | null) => string }[] = [
     { key: 'fn_name', label: 'Function' },
     { key: 'fn_module', label: 'Module' },
@@ -59,136 +79,150 @@ export function FunctionTable({ platforms }: Props) {
     { key: 'avg_p95_ms', label: 'p95 ms (avg)', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
     { key: 'max_p95_ms', label: 'p95 ms (max)', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
     { key: 'avg_avg_ms', label: 'Avg ms', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
+    { key: 'delta_avg_p95_ms' as SortKey, label: 'Δ p95', fmt: (v) => {
+      if (v == null) return '–';
+      const sign = v > 0 ? '+' : '';
+      return `${sign}${v.toFixed(1)}ms`;
+    }},
   ];
 
   return (
     <div>
-      <div style={styles.controls}>
-        <label style={styles.selectLabel}>
-          <span style={styles.hint}>Platform</span>
-          <select
-            value={selectedPlatform}
-            onChange={(e) => setSelectedPlatform(e.target.value)}
-            style={styles.select}
-          >
-            <option value="all">All platforms</option>
-            {platforms.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </label>
-        <label style={styles.selectLabel}>
-          <span style={styles.hint}>Range</span>
-          <select value={String(days)} onChange={(e) => setDays(Number(e.target.value))} style={styles.select}>
-            <option value="3">3 days</option>
-            <option value="7">7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </label>
-        <label style={styles.selectLabel}>
-          <span style={styles.hint}>Search</span>
+      <div className="flex flex-wrap gap-3 mb-5 items-end">
+        <Select
+          label="Platform"
+          value={selectedPlatform}
+          onChange={(v) => { setSelectedPlatform(v); setPage(1); }}
+          options={[{ value: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ value: p, label: p }))]}
+        />
+        <Select
+          label="Range"
+          value={String(days)}
+          onChange={(v) => { setDays(Number(v)); setPage(1); }}
+          options={[
+            { value: '3', label: '3 days' },
+            { value: '7', label: '7 days' },
+            { value: '14', label: '14 days' },
+            { value: '30', label: '30 days' },
+          ]}
+        />
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-perf-muted uppercase tracking-wider">Search</span>
           <input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="function or module…"
-            style={{ ...styles.select, width: 200 }}
+            className="bg-perf-surface border border-perf-border rounded-lg text-perf-text px-2.5 py-1.5 text-[13px] w-[200px] placeholder:text-perf-muted outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50 focus-visible:border-perf-accent/60"
           />
         </label>
       </div>
 
-      {loading && <div style={styles.loading}>Loading…</div>}
-      {error && <div style={styles.error}>⚠ {error}</div>}
+      {error && <ErrorBanner message={error} />}
 
-      <div style={styles.tableWrap}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr>
-              {cols.map((c) => (
-                <th
-                  key={c.key}
-                  onClick={() => handleSort(c.key)}
-                  style={{
-                    ...styles.th,
-                    cursor: 'pointer',
-                    color: sortKey === c.key ? '#93c5fd' : '#64748b',
-                  }}
-                >
-                  {c.label}
-                  {sortKey === c.key && (sortAsc ? ' ↑' : ' ↓')}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.slice(0, 50).map((row, i) => (
-              <tr key={i} style={i % 2 === 0 ? {} : { background: '#0f1420' }}>
-                {cols.map((c) => {
-                  const raw = row[c.key];
-                  const display = c.fmt
-                    ? c.fmt(raw as number | null)
-                    : String(raw ?? '–');
-                  const isHighP95 =
-                    c.key === 'avg_p95_ms' &&
-                    raw != null &&
-                    (raw as number) > 100;
-                  return (
-                    <td
-                      key={c.key}
-                      style={{
-                        ...styles.td,
-                        ...(isHighP95 ? { color: '#fca5a5', fontWeight: 600 } : {}),
-                        ...(c.key === 'fn_name' ? { fontFamily: 'monospace', fontSize: 12 } : {}),
-                        maxWidth: c.key === 'fn_name' ? 280 : undefined,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                      title={display}
-                    >
-                      {display}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-            {sorted.length === 0 && !loading && (
+      {loading ? <TableSkeleton rows={PAGE_SIZE} cols={cols.length} /> : (
+        <div className="rounded-lg overflow-auto border border-perf-surface">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>
               <tr>
-                <td colSpan={cols.length} style={{ ...styles.td, color: '#64748b', textAlign: 'center', padding: 24 }}>
-                  No data
-                </td>
+                {cols.map((c) => (
+                  <th
+                    key={c.key}
+                    onClick={() => handleSort(c.key)}
+                    className={`bg-perf-surface text-left px-3 py-2 text-[11px] uppercase tracking-wider whitespace-nowrap sticky top-0 cursor-pointer select-none ${
+                      sortKey === c.key ? 'text-perf-accent' : 'text-perf-muted'
+                    }`}
+                  >
+                    {c.label}
+                    {sortKey === c.key && (sortAsc ? ' ↑' : ' ↓')}
+                  </th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {sorted.length > 50 && (
-        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, textAlign: 'right' }}>
-          Showing 50 / {sorted.length}
+            </thead>
+            <tbody>
+              {sorted.map((row, i) => (
+                <tr key={i} className={`hover:bg-perf-hover transition-colors ${i % 2 === 0 ? '' : 'bg-perf-row-alt'}`}>
+                  {cols.map((c) => {
+                    const raw = row[c.key as keyof PerfFnStat];
+                    const display = c.fmt
+                      ? c.fmt(raw as number | null)
+                      : String(raw ?? '–');
+                    const isHighP95 =
+                      c.key === 'avg_p95_ms' &&
+                      raw != null &&
+                      (raw as number) > 100;
+                    const isDeltaBad =
+                      c.key === 'delta_avg_p95_ms' &&
+                      raw != null &&
+                      (raw as number) > 0;
+                    const isDeltaGood =
+                      c.key === 'delta_avg_p95_ms' &&
+                      raw != null &&
+                      (raw as number) < 0;
+                    return (
+                      <td
+                        key={c.key}
+                        className={`px-3 py-[7px] border-t border-perf-surface/50 text-perf-text ${
+                          isHighP95 ? 'text-err-text font-semibold' :
+                          isDeltaBad ? 'text-status-regression font-semibold' :
+                          isDeltaGood ? 'text-status-ok font-semibold' : ''
+                        } ${c.key === 'fn_name' ? 'font-mono text-xs max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap' : ''}`}
+                        title={display}
+                      >
+                        {display}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {sorted.length === 0 && !loading && (
+                <tr>
+                  <td colSpan={cols.length} className="px-3 py-6 text-perf-muted text-center border-t border-perf-surface/50">
+                    No data
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-xs text-perf-muted">
+            Page {page} of {totalPages} ({total} functions)
+          </span>
+          <div className="flex gap-2">
+            <PaginationButton
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              Previous
+            </PaginationButton>
+            <PaginationButton
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </PaginationButton>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  controls: { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20, alignItems: 'flex-end' },
-  selectLabel: { display: 'flex', flexDirection: 'column', gap: 4 },
-  hint: { fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' },
-  select: {
-    background: '#1e2533', border: '1px solid #334155', borderRadius: 6,
-    color: '#e2e8f0', padding: '6px 10px', fontSize: 13, cursor: 'pointer',
-  },
-  loading: { color: '#64748b', fontSize: 13, marginBottom: 8 },
-  error: {
-    color: '#fca5a5', fontSize: 13, marginBottom: 8,
-    background: '#450a0a', border: '1px solid #7f1d1d',
-    borderRadius: 6, padding: '8px 12px',
-  },
-  tableWrap: { borderRadius: 8, overflow: 'auto', border: '1px solid #1e2533' },
-  th: {
-    background: '#1e2533', textAlign: 'left', padding: '8px 12px',
-    fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
-    whiteSpace: 'nowrap', position: 'sticky', top: 0,
-  },
-  td: { padding: '7px 12px', borderTop: '1px solid #1a1f2e', color: '#e2e8f0' },
-};
+function PaginationButton({ children, onClick, disabled }: {
+  children: React.ReactNode; onClick: () => void; disabled: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="px-3 py-1.5 text-xs rounded-lg bg-perf-surface border border-perf-border text-perf-text disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer hover:bg-perf-hover transition-colors outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50"
+    >
+      {children}
+    </button>
+  );
+}

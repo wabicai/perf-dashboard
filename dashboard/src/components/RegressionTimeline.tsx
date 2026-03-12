@@ -1,16 +1,27 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { api } from '../api';
+import { Select } from './ui/Select';
+import { ErrorBanner } from './ui/ErrorBanner';
+import { CardSkeleton } from './ui/Skeleton';
+import { Chip } from './ui/Chip';
 import type { PerfJob } from '../types';
 
 interface Props {
   platforms: string[];
+  onJobClick?: (jobId: string) => void;
 }
 
 const SEVERITY_COLOR: Record<string, string> = {
-  P1: '#ef4444',
-  P2: '#f59e0b',
-  INFO: '#60a5fa',
+  P1: 'text-status-regression',
+  P2: 'text-status-failed',
+  INFO: 'text-status-info',
+};
+
+const SEVERITY_BORDER: Record<string, string> = {
+  P1: 'border-l-status-regression',
+  P2: 'border-l-status-failed',
+  INFO: 'border-l-status-info',
 };
 
 const STATUS_ICON: Record<string, string> = {
@@ -18,6 +29,10 @@ const STATUS_ICON: Record<string, string> = {
   failed: '❌',
   recovered: '✅',
 };
+
+const PAGE_SIZE = 20;
+
+type SeverityFilter = 'all' | 'P1' | 'P2+';
 
 function fmt(v: number | null, unit = 'ms') {
   if (v == null) return '–';
@@ -29,10 +44,13 @@ function fmtDelta(v: number | null) {
   return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
 }
 
-export function RegressionTimeline({ platforms }: Props) {
+export function RegressionTimeline({ platforms, onJobClick }: Props) {
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
   const [days, setDays] = useState(30);
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
+  const [page, setPage] = useState(1);
   const [data, setData] = useState<PerfJob[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,112 +58,171 @@ export function RegressionTimeline({ platforms }: Props) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+
+    const severityParam = severityFilter === 'all' ? undefined
+      : severityFilter === 'P1' ? 'P1'
+      : 'P2';
+
     api
-      .regressions(selectedPlatform === 'all' ? undefined : selectedPlatform, days)
-      .then((d) => { if (!cancelled) setData(d); })
+      .regressions(
+        selectedPlatform === 'all' ? undefined : selectedPlatform,
+        days,
+        severityParam,
+        page,
+        PAGE_SIZE,
+      )
+      .then((res) => {
+        if (!cancelled) {
+          setData(res.data);
+          setTotal(res.total);
+        }
+      })
       .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load regression data')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedPlatform, days]);
+  }, [selectedPlatform, days, severityFilter, page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div>
-      <div style={styles.controls}>
-        <label style={styles.selectLabel}>
-          <span style={styles.hint}>Platform</span>
-          <select
-            value={selectedPlatform}
-            onChange={(e) => setSelectedPlatform(e.target.value)}
-            style={styles.select}
-          >
-            <option value="all">All platforms</option>
-            {platforms.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </label>
-        <label style={styles.selectLabel}>
-          <span style={styles.hint}>Range</span>
-          <select value={String(days)} onChange={(e) => setDays(Number(e.target.value))} style={styles.select}>
-            <option value="7">7 days</option>
-            <option value="14">14 days</option>
-            <option value="30">30 days</option>
-            <option value="60">60 days</option>
-          </select>
-        </label>
+      <div className="flex flex-wrap gap-3 mb-5 items-end">
+        <Select
+          label="Platform"
+          value={selectedPlatform}
+          onChange={(v) => { setSelectedPlatform(v); setPage(1); }}
+          options={[{ value: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ value: p, label: p }))]}
+        />
+        <Select
+          label="Range"
+          value={String(days)}
+          onChange={(v) => { setDays(Number(v)); setPage(1); }}
+          options={[
+            { value: '7', label: '7 days' },
+            { value: '14', label: '14 days' },
+            { value: '30', label: '30 days' },
+            { value: '60', label: '60 days' },
+          ]}
+        />
+
+        {/* Severity filter */}
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] text-perf-muted uppercase tracking-wider">Severity</span>
+          <div className="flex gap-0.5 bg-perf-surface/50 rounded-lg p-0.5">
+            {(['all', 'P1', 'P2+'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => { setSeverityFilter(s); setPage(1); }}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md border-none cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50 ${
+                  severityFilter === s
+                    ? 'bg-perf-surface text-perf-text'
+                    : 'bg-transparent text-perf-muted hover:text-perf-text-dim'
+                }`}
+              >
+                {s === 'all' ? 'All' : s}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {loading && <div style={styles.loading}>Loading…</div>}
-      {error && <div style={styles.error}>⚠ {error}</div>}
+      {error && <ErrorBanner message={error} />}
+
+      {loading && (
+        <div className="flex flex-col gap-2.5">
+          {Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}
+        </div>
+      )}
 
       {!loading && !error && data.length === 0 && (
-        <div style={{ color: '#34d399', textAlign: 'center', padding: 40, fontSize: 15 }}>
+        <div className="text-status-ok text-center py-10 text-[15px]">
           ✅ No regressions in selected range
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {data.map((job) => {
-          const sev = job.severity;
-          const deltaStart = fmtDelta(job.delta_pct_start);
-          const deltaSpan = fmtDelta(job.delta_pct_span);
-          return (
-            <div key={job.job_id} style={{ ...styles.card, borderLeftColor: SEVERITY_COLOR[sev] || '#64748b' }}>
-              <div style={styles.cardTop}>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>
-                  {STATUS_ICON[job.status] || '⚪'}{' '}
-                  <span style={{ color: SEVERITY_COLOR[sev] || '#e2e8f0' }}>[{sev}]</span>{' '}
-                  {job.platform}
-                </span>
-                <span style={styles.time}>
-                  {format(new Date(job.started_at), 'yyyy-MM-dd HH:mm')}
-                </span>
-              </div>
+      {!loading && (
+        <div className="flex flex-col gap-2.5">
+          {data.map((job) => {
+            const sev = job.severity;
+            const deltaStart = fmtDelta(job.delta_pct_start);
+            const deltaSpan = fmtDelta(job.delta_pct_span);
+            return (
+              <div
+                key={job.job_id}
+                onClick={() => onJobClick?.(job.job_id)}
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') onJobClick?.(job.job_id); }}
+                className={`bg-perf-card border border-perf-surface border-l-[3px] ${SEVERITY_BORDER[sev] || 'border-l-perf-muted'} rounded-lg px-4 py-3 flex flex-col gap-2 cursor-pointer hover:bg-perf-hover transition-colors outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">
+                    {STATUS_ICON[job.status] || '⚪'}{' '}
+                    <span className={SEVERITY_COLOR[sev] || 'text-perf-text'}>[{sev}]</span>{' '}
+                    {job.platform}
+                  </span>
+                  <span className="text-xs text-perf-muted">
+                    {format(new Date(job.started_at), 'yyyy-MM-dd HH:mm')}
+                  </span>
+                </div>
 
-              <div style={styles.cardMeta}>
-                {job.branch && <Chip>{job.branch}</Chip>}
-                {job.commit_sha && <Chip mono>{job.commit_sha.slice(0, 7)}</Chip>}
-                {job.app_version && <Chip>{job.app_version}</Chip>}
-              </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {job.branch && <Chip>{job.branch}</Chip>}
+                  {job.commit_sha && <Chip mono>{job.commit_sha.slice(0, 7)}</Chip>}
+                  {job.app_version && <Chip>{job.app_version}</Chip>}
+                </div>
 
-              <div style={styles.metrics}>
-                <MetricPill
-                  label="Startup"
-                  value={fmt(job.start_ms)}
-                  threshold={fmt(job.start_threshold)}
-                  delta={deltaStart}
-                  bad={!!job.delta_pct_start && job.delta_pct_start > 0}
-                />
-                <MetricPill
-                  label="Refresh"
-                  value={fmt(job.span_ms)}
-                  threshold={fmt(job.span_threshold)}
-                  delta={deltaSpan}
-                  bad={!!job.delta_pct_span && job.delta_pct_span > 0}
-                />
-                <MetricPill
-                  label="Fn calls"
-                  value={job.fc_count != null ? String(Math.round(job.fc_count)) : '–'}
-                  threshold={null}
-                  delta={null}
-                  bad={false}
-                />
+                <div className="flex flex-wrap gap-2">
+                  <MetricPill
+                    label="Startup"
+                    value={fmt(job.start_ms)}
+                    threshold={fmt(job.start_threshold)}
+                    delta={deltaStart}
+                    bad={!!job.delta_pct_start && job.delta_pct_start > 0}
+                  />
+                  <MetricPill
+                    label="Refresh"
+                    value={fmt(job.span_ms)}
+                    threshold={fmt(job.span_threshold)}
+                    delta={deltaSpan}
+                    bad={!!job.delta_pct_span && job.delta_pct_span > 0}
+                  />
+                  <MetricPill
+                    label="Fn calls"
+                    value={job.fc_count != null ? String(Math.round(job.fc_count)) : '–'}
+                    threshold={null}
+                    delta={null}
+                    bad={false}
+                  />
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-xs text-perf-muted">
+            Page {page} of {totalPages} ({total} regressions)
+          </span>
+          <div className="flex gap-2">
+            <PaginationButton
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              Previous
+            </PaginationButton>
+            <PaginationButton
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </PaginationButton>
+          </div>
+        </div>
+      )}
     </div>
-  );
-}
-
-function Chip({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
-  return (
-    <span style={{
-      background: '#1e2533', border: '1px solid #334155', borderRadius: 4,
-      padding: '2px 7px', fontSize: 11, color: '#94a3b8',
-      fontFamily: mono ? 'monospace' : undefined,
-    }}>
-      {children}
-    </span>
   );
 }
 
@@ -155,15 +232,12 @@ function MetricPill({
   label: string; value: string; threshold: string | null; delta: string | null; bad: boolean;
 }) {
   return (
-    <div style={{
-      background: '#0f1420', borderRadius: 6, padding: '6px 10px', fontSize: 12,
-      border: `1px solid ${bad ? '#7f1d1d' : '#1e2533'}`,
-    }}>
-      <div style={{ color: '#64748b', fontSize: 10, marginBottom: 2 }}>{label}</div>
-      <span style={{ color: bad ? '#fca5a5' : '#e2e8f0', fontWeight: 600 }}>{value}</span>
-      {threshold && <span style={{ color: '#64748b' }}> / {threshold}</span>}
+    <div className={`bg-perf-row-alt rounded-lg px-2.5 py-1.5 text-xs border ${bad ? 'border-err-border' : 'border-perf-surface'}`}>
+      <div className="text-perf-muted text-[10px] mb-0.5">{label}</div>
+      <span className={`font-semibold ${bad ? 'text-err-text' : 'text-perf-text'}`}>{value}</span>
+      {threshold && <span className="text-perf-muted"> / {threshold}</span>}
       {delta && (
-        <span style={{ color: bad ? '#f87171' : '#34d399', marginLeft: 6, fontSize: 11 }}>
+        <span className={`ml-1.5 text-[11px] ${bad ? 'text-status-regression' : 'text-status-ok'}`}>
           {delta}
         </span>
       )}
@@ -171,27 +245,16 @@ function MetricPill({
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  controls: { display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20, alignItems: 'flex-end' },
-  selectLabel: { display: 'flex', flexDirection: 'column', gap: 4 },
-  hint: { fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' },
-  select: {
-    background: '#1e2533', border: '1px solid #334155', borderRadius: 6,
-    color: '#e2e8f0', padding: '6px 10px', fontSize: 13, cursor: 'pointer',
-  },
-  loading: { color: '#64748b', fontSize: 13, marginBottom: 8 },
-  error: {
-    color: '#fca5a5', fontSize: 13, marginBottom: 8,
-    background: '#450a0a', border: '1px solid #7f1d1d',
-    borderRadius: 6, padding: '8px 12px',
-  },
-  card: {
-    background: '#141820', border: '1px solid #1e2533',
-    borderLeft: '3px solid #64748b', borderRadius: 8,
-    padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8,
-  },
-  cardTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  cardMeta: { display: 'flex', flexWrap: 'wrap', gap: 6 },
-  metrics: { display: 'flex', flexWrap: 'wrap', gap: 8 },
-  time: { fontSize: 12, color: '#64748b' },
-};
+function PaginationButton({ children, onClick, disabled }: {
+  children: React.ReactNode; onClick: () => void; disabled: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="px-3 py-1.5 text-xs rounded-lg bg-perf-surface border border-perf-border text-perf-text disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer hover:bg-perf-hover transition-colors outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50"
+    >
+      {children}
+    </button>
+  );
+}

@@ -7,9 +7,11 @@
  *   GET  /api/platforms       – distinct platforms
  *   GET  /api/trend           – time-series per platform
  *   GET  /api/compare         – compare two date ranges
- *   GET  /api/functions       – top slow functions
- *   GET  /api/regressions     – regression events
+ *   GET  /api/functions       – top slow functions (paginated, with delta)
+ *   GET  /api/regressions     – regression events (paginated, severity filter)
  *   GET  /api/summary         – latest job per platform
+ *   GET  /api/marks           – marks for a session/job
+ *   GET  /api/job/:job_id     – full job detail (runs, fn_stats, marks)
  *
  * Environment bindings (set in wrangler.toml / dashboard secrets):
  *   DB               – D1 database binding
@@ -202,9 +204,6 @@ async function handlePlatforms(env) {
 }
 
 async function handleSummary(env) {
-  // Latest job per platform using CTEs — avoids correlated subquery O(P×N).
-  // CTE 1: max started_at per platform.
-  // CTE 2: max job_id among those rows (tie-break for same timestamp).
   const { results } = await env.DB.prepare(
     `WITH latest AS (
        SELECT platform, MAX(started_at) AS max_at
@@ -261,7 +260,6 @@ async function handleCompare(request, env) {
   const fromTs = new Date(from).getTime();
   const toEnd = new Date(to).getTime() + 86400_000; // inclusive day
 
-  // Group: average metrics per platform per day
   let query = `
     SELECT platform,
            date(started_at / 1000, 'unixepoch') AS day,
@@ -289,9 +287,28 @@ async function handleFunctions(request, env) {
   const platform = url.searchParams.get('platform') || null;
   const days = Math.min(Number(url.searchParams.get('days') || 7), 30);
   const limit = Math.min(Number(url.searchParams.get('limit') || 20), 50);
+  const page = Math.max(Number(url.searchParams.get('page') || 1), 1);
+  const compare = url.searchParams.get('compare'); // 'previous'
   const since = Date.now() - days * 86400_000;
+  const offset = (page - 1) * limit;
 
-  // Aggregate fn_stats for recent jobs, rank by median p95
+  // Count total
+  let countQuery = `
+    SELECT COUNT(DISTINCT f.fn_name || COALESCE(f.fn_file, '') || COALESCE(f.fn_module, '')) AS total
+    FROM perf_fn_stats f
+    JOIN perf_jobs j ON f.job_id = j.job_id
+    WHERE j.started_at >= ?`;
+  const countBinds = [since];
+
+  if (platform) {
+    countQuery += ` AND j.platform = ?`;
+    countBinds.push(platform);
+  }
+
+  const countResult = await env.DB.prepare(countQuery).bind(...countBinds).first();
+  const total = countResult?.total ?? 0;
+
+  // Main query
   let query = `
     SELECT f.fn_name, f.fn_file, f.fn_module,
            COUNT(DISTINCT f.session_id)          AS session_count,
@@ -312,38 +329,95 @@ async function handleFunctions(request, env) {
   query += `
     GROUP BY f.fn_name, f.fn_file, f.fn_module
     ORDER BY avg_p95_ms DESC
-    LIMIT ?`;
-  binds.push(limit);
+    LIMIT ? OFFSET ?`;
+  binds.push(limit, offset);
 
   const { results } = await env.DB.prepare(query).bind(...binds).all();
-  return json(results);
+
+  // If compare=previous, fetch previous period for delta
+  if (compare === 'previous' && results.length > 0) {
+    const prevSince = since - days * 86400_000;
+    const fnNames = results.map((r) => r.fn_name);
+
+    let prevQuery = `
+      SELECT f.fn_name, f.fn_file, f.fn_module,
+             ROUND(AVG(f.p95_ms), 2) AS avg_p95_ms
+      FROM perf_fn_stats f
+      JOIN perf_jobs j ON f.job_id = j.job_id
+      WHERE j.started_at >= ? AND j.started_at < ?`;
+    const prevBinds = [prevSince, since];
+
+    if (platform) {
+      prevQuery += ` AND j.platform = ?`;
+      prevBinds.push(platform);
+    }
+
+    // Filter by function names from current period
+    const placeholders = fnNames.map(() => '?').join(',');
+    prevQuery += ` AND f.fn_name IN (${placeholders})`;
+    prevBinds.push(...fnNames);
+
+    prevQuery += ` GROUP BY f.fn_name, f.fn_file, f.fn_module`;
+
+    const { results: prevResults } = await env.DB.prepare(prevQuery).bind(...prevBinds).all();
+    const prevMap = new Map(prevResults.map((r) => [r.fn_name, r.avg_p95_ms]));
+
+    for (const row of results) {
+      const prevP95 = prevMap.get(row.fn_name);
+      row.delta_avg_p95_ms = prevP95 != null && row.avg_p95_ms != null
+        ? Math.round((row.avg_p95_ms - prevP95) * 100) / 100
+        : null;
+    }
+  }
+
+  return json({ data: results, total, page, per_page: limit });
 }
 
 async function handleRegressions(request, env) {
   const url = new URL(request.url);
   const platform = url.searchParams.get('platform') || null;
+  const severity = url.searchParams.get('severity') || null;
   const days = Math.min(Number(url.searchParams.get('days') || 30), 90);
+  const page = Math.max(Number(url.searchParams.get('page') || 1), 1);
+  const perPage = Math.min(Number(url.searchParams.get('per_page') || 20), 50);
   const since = Date.now() - days * 86400_000;
+  const offset = (page - 1) * perPage;
 
-  let query = `
-    SELECT job_id, platform, branch, commit_sha, app_version,
-           started_at, status, severity,
-           start_ms, span_ms, fc_count,
-           start_threshold, span_threshold,
-           delta_pct_start, delta_pct_span
-    FROM perf_jobs
-    WHERE started_at >= ?
-      AND status IN ('regression', 'failed')`;
+  // Base WHERE clause
+  let where = `WHERE started_at >= ? AND status IN ('regression', 'failed')`;
   const binds = [since];
 
   if (platform) {
-    query += ` AND platform = ?`;
+    where += ` AND platform = ?`;
     binds.push(platform);
   }
-  query += ` ORDER BY started_at DESC LIMIT 100`;
 
-  const { results } = await env.DB.prepare(query).bind(...binds).all();
-  return json(results);
+  if (severity === 'P1') {
+    where += ` AND severity = 'P1'`;
+  } else if (severity === 'P2') {
+    where += ` AND severity IN ('P1', 'P2')`;
+  }
+
+  // Count
+  const countResult = await env.DB.prepare(
+    `SELECT COUNT(*) AS total FROM perf_jobs ${where}`,
+  ).bind(...binds).first();
+  const total = countResult?.total ?? 0;
+
+  // Data
+  const { results } = await env.DB.prepare(
+    `SELECT job_id, platform, branch, commit_sha, app_version,
+            started_at, status, severity,
+            start_ms, span_ms, fc_count,
+            start_threshold, span_threshold,
+            delta_pct_start, delta_pct_span
+     FROM perf_jobs
+     ${where}
+     ORDER BY started_at DESC
+     LIMIT ? OFFSET ?`,
+  ).bind(...binds, perPage, offset).all();
+
+  return json({ data: results, total, page, per_page: perPage });
 }
 
 async function handleMarks(request, env) {
@@ -367,6 +441,43 @@ async function handleMarks(request, env) {
 
   const { results } = await env.DB.prepare(query).bind(...binds).all();
   return json(results);
+}
+
+async function handleJobDetail(jobId, env) {
+  // Batch query: job + runs + fn_stats + marks
+  const [jobResult, runsResult, fnStatsResult, marksResult] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM perf_jobs WHERE job_id = ?`).bind(jobId).first(),
+    env.DB.prepare(
+      `SELECT job_id, session_id, run_index, start_ms, span_ms, fc_count
+       FROM perf_runs WHERE job_id = ? ORDER BY run_index ASC`,
+    ).bind(jobId).all(),
+    env.DB.prepare(
+      `SELECT fn_name, fn_file, fn_module,
+              COUNT(DISTINCT session_id) AS session_count,
+              ROUND(AVG(call_count), 1) AS avg_call_count,
+              ROUND(AVG(p95_ms), 2) AS avg_p95_ms,
+              ROUND(MAX(p95_ms), 2) AS max_p95_ms,
+              ROUND(AVG(avg_ms), 2) AS avg_avg_ms,
+              ROUND(AVG(total_ms), 2) AS avg_total_ms
+       FROM perf_fn_stats
+       WHERE job_id = ?
+       GROUP BY fn_name, fn_file, fn_module
+       ORDER BY avg_p95_ms DESC
+       LIMIT 20`,
+    ).bind(jobId).all(),
+    env.DB.prepare(
+      `SELECT * FROM perf_marks WHERE job_id = ? ORDER BY since_start_ms ASC LIMIT 500`,
+    ).bind(jobId).all(),
+  ]);
+
+  if (!jobResult) return err('Job not found', 404);
+
+  return json({
+    job: jobResult,
+    runs: runsResult.results,
+    fn_stats: fnStatsResult.results,
+    marks: marksResult.results,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +515,11 @@ export default {
       if (path === '/api/functions')   return handleFunctions(request, env);
       if (path === '/api/regressions') return handleRegressions(request, env);
       if (path === '/api/marks')       return handleMarks(request, env);
+
+      // Job detail: /api/job/:job_id
+      const jobMatch = path.match(/^\/api\/job\/(.+)$/);
+      if (jobMatch) return handleJobDetail(decodeURIComponent(jobMatch[1]), env);
+
       if (path === '/api/health') {
         return json({ ok: true, ts: Date.now() });
       }

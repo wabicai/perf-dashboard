@@ -1,4 +1,4 @@
-import type { PerfJob, PerfFnStat, CompareRow } from './types';
+import type { PerfJob, PerfFnStat, CompareRow, JobDetailResponse, PaginatedResponse, PerfMark } from './types';
 
 const BASE = import.meta.env.VITE_WORKER_URL || '';
 
@@ -26,15 +26,24 @@ export const api = {
       to,
       ...(platform ? { platform } : {}),
     }),
-  functions: (platform?: string, days?: number, limit?: number) =>
-    get<PerfFnStat[]>('/api/functions', {
+  functions: (platform?: string, days?: number, limit?: number, page?: number, compare?: string) =>
+    get<PaginatedResponse<PerfFnStat>>('/api/functions', {
       ...(platform ? { platform } : {}),
       days: String(days ?? 7),
       limit: String(limit ?? 20),
+      ...(page ? { page: String(page) } : {}),
+      ...(compare ? { compare } : {}),
     }),
-  regressions: (platform?: string, days?: number) =>
-    get<PerfJob[]>('/api/regressions', {
+  regressions: (platform?: string, days?: number, severity?: string, page?: number, perPage?: number) =>
+    get<PaginatedResponse<PerfJob>>('/api/regressions', {
       ...(platform ? { platform } : {}),
       days: String(days ?? 30),
+      ...(severity ? { severity } : {}),
+      ...(page ? { page: String(page) } : {}),
+      ...(perPage ? { per_page: String(perPage) } : {}),
     }),
+  jobDetail: (jobId: string) =>
+    get<JobDetailResponse>(`/api/job/${jobId}`),
+  marks: (params: { job_id?: string; session_id?: string }) =>
+    get<PerfMark[]>('/api/marks', params as Record<string, string>),
 };
