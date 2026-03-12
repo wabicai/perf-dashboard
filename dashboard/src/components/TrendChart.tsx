@@ -41,7 +41,7 @@ export function TrendChart({ platforms }: Props) {
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [selectedPlatform, days]);
+  }, [selectedPlatform, days, metric]);
 
   // Group by platform for multi-line chart
   const platformsToShow: Platform[] =

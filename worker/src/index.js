@@ -202,14 +202,20 @@ async function handlePlatforms(env) {
 }
 
 async function handleSummary(env) {
-  // Latest job per platform
+  // Latest job per platform — use job_id tie-break to guarantee one row per platform
+  // even when two jobs share the same started_at timestamp.
   const { results } = await env.DB.prepare(
     `SELECT j.*
      FROM perf_jobs j
      INNER JOIN (
-       SELECT platform, MAX(started_at) AS max_at
-       FROM perf_jobs GROUP BY platform
-     ) latest ON j.platform = latest.platform AND j.started_at = latest.max_at
+       SELECT platform, MAX(job_id) AS max_job_id
+       FROM perf_jobs
+       WHERE started_at = (
+         SELECT MAX(started_at) FROM perf_jobs j2
+         WHERE j2.platform = perf_jobs.platform
+       )
+       GROUP BY platform
+     ) latest ON j.job_id = latest.max_job_id
      ORDER BY j.platform`,
   ).all();
   return json(results);
@@ -354,7 +360,7 @@ async function handleMarks(request, env) {
     query += `job_id = ?`;
     binds.push(jobId);
   }
-  query += ` ORDER BY ts ASC`;
+  query += ` ORDER BY ts ASC LIMIT 2000`;
 
   const { results } = await env.DB.prepare(query).bind(...binds).all();
   return json(results);
