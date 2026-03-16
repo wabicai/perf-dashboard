@@ -69,7 +69,9 @@ export function App() {
   const [summary, setSummary] = useState<PerfJob[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
   const [initLoading, setInitLoading] = useState(true);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('job_id'),
+  );
 
   useEffect(() => {
     Promise.all([
@@ -81,6 +83,19 @@ export function App() {
   }, []);
 
   const handleJobClick = (jobId: string) => setSelectedJobId(jobId);
+
+  // Keep URL in sync with selected job
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (selectedJobId) {
+      params.set('job_id', selectedJobId);
+    } else {
+      params.delete('job_id');
+    }
+    const newSearch = params.toString();
+    const newUrl = newSearch ? `?${newSearch}` : window.location.pathname;
+    window.history.replaceState(null, '', newUrl);
+  }, [selectedJobId]);
 
   return (
     <div className="min-h-screen bg-perf-bg text-perf-text">
