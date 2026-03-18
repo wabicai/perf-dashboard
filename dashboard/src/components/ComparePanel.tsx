@@ -215,7 +215,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
                   <XAxis dataKey="platformLabel" tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 12 }} />
                   <YAxis tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 11 }} />
                   <Tooltip
-                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                    cursor={false}
                     contentStyle={{
                       background: 'var(--color-perf-surface)',
                       border: '1px solid var(--color-perf-border)',

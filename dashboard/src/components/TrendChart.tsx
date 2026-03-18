@@ -19,6 +19,12 @@ const PLATFORM_COLORS: Record<string, string> = {
   desktop: '#f472b6',
 };
 
+function getPlatformColor(p: string): string {
+  if (PLATFORM_COLORS[p]) return PLATFORM_COLORS[p];
+  const prefix = p.split('.')[0];
+  return PLATFORM_COLORS[prefix] || 'var(--color-perf-text-dim)';
+}
+
 const METRICS = [
   { key: 'start_ms', label: '启动延迟', unit: 'ms' },
   { key: 'span_ms', label: '刷新耗时', unit: 'ms' },
@@ -182,7 +188,7 @@ export function TrendChart({ platforms, onJobClick }: Props) {
                   type="monotone"
                   dataKey={p}
                   name={platformLabel(p)}
-                  stroke={PLATFORM_COLORS[p] || 'var(--color-perf-text-dim)'}
+                  stroke={getPlatformColor(p)}
                   strokeWidth={2}
                   dot={false}
                   activeDot={{
