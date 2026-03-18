@@ -89,15 +89,6 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
 
   return (
     <div>
-      {/* Explanation */}
-      <div className="mb-5 p-3 bg-perf-surface/50 rounded-lg border border-perf-surface text-[13px] text-perf-text-dim leading-relaxed">
-        <span className="font-semibold text-perf-text">什么是「回归」？</span>
-        {' '}当某次 CI 运行后，启动耗时或刷新耗时超过预设阈值，系统自动标记为回归。
-        P1 = 严重超标，P2 = 轻度超标。
-        <span className="text-status-ok ml-2">✅ 已恢复</span> = 后续 CI 已回到阈值以内。
-        {' '}重点关注：<span className="text-status-regression font-medium">哪个平台、哪次提交引入、Δ% 多少</span>。
-      </div>
-
       <div className="flex flex-wrap gap-3 mb-5 items-end">
         <Select
           label="平台"
@@ -147,7 +138,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
 
       {!loading && !error && data.length === 0 && (
         <div className="text-status-ok text-center py-10 text-[15px]">
-          ✅ 所选范围内无回归
+          ✅ 所选时间段内性能均正常
         </div>
       )}
 
@@ -155,7 +146,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
       {!loading && activeData.length > 0 && (
         <>
           <div className="mb-2 text-[11px] text-status-regression font-semibold uppercase tracking-wider">
-            🔴 进行中 / 未恢复 ({activeData.length})
+            🔴 性能仍超标 · 未恢复 ({activeData.length})
           </div>
           <div className="flex flex-col gap-2.5">
             {activeData.map((job) => (
@@ -169,7 +160,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
       {!loading && recoveredData.length > 0 && (
         <>
           <div className="mt-5 mb-2 text-[11px] text-status-ok font-semibold uppercase tracking-wider">
-            ✅ 已恢复 ({recoveredData.length})
+            ✅ 已恢复正常 ({recoveredData.length})
           </div>
           <div className="flex flex-col gap-2.5">
             {recoveredData.map((job) => (

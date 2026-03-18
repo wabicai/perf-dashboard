@@ -16,7 +16,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'trend', label: '趋势' },
   { id: 'compare', label: '对比' },
   { id: 'functions', label: '函数' },
-  { id: 'regressions', label: '回归' },
+  { id: 'regressions', label: '性能超标' },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
