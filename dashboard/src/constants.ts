@@ -19,9 +19,9 @@ export function platformLabel(key: string): string {
 
 export const STATUS_LABELS: Record<string, string> = {
   ok: '正常',
-  regression: '回归',
+  regression: '性能超标',
   failed: '失败',
-  recovered: '已恢复',
+  recovered: '已恢复正常',
 };
 
 export function statusLabel(key: string): string {
