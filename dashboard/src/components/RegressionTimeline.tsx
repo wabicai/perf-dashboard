@@ -5,6 +5,7 @@ import { Select } from './ui/Select';
 import { ErrorBanner } from './ui/ErrorBanner';
 import { CardSkeleton } from './ui/Skeleton';
 import { Chip } from './ui/Chip';
+import { platformLabel, statusLabel } from '../constants';
 import type { PerfJob } from '../types';
 
 interface Props {
@@ -77,7 +78,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
           setTotal(res.total);
         }
       })
-      .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load regression data')); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || '加载回归数据失败')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [selectedPlatform, days, severityFilter, page]);
@@ -88,26 +89,26 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
     <div>
       <div className="flex flex-wrap gap-3 mb-5 items-end">
         <Select
-          label="Platform"
+          label="平台"
           value={selectedPlatform}
           onChange={(v) => { setSelectedPlatform(v); setPage(1); }}
-          options={[{ value: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ value: p, label: p }))]}
+          options={[{ value: 'all', label: '全部平台' }, ...platforms.map((p) => ({ value: p, label: platformLabel(p) }))]}
         />
         <Select
-          label="Range"
+          label="时间范围"
           value={String(days)}
           onChange={(v) => { setDays(Number(v)); setPage(1); }}
           options={[
-            { value: '7', label: '7 days' },
-            { value: '14', label: '14 days' },
-            { value: '30', label: '30 days' },
-            { value: '60', label: '60 days' },
+            { value: '7', label: '7 天' },
+            { value: '14', label: '14 天' },
+            { value: '30', label: '30 天' },
+            { value: '60', label: '60 天' },
           ]}
         />
 
         {/* Severity filter */}
         <div className="flex flex-col gap-1">
-          <span className="text-[11px] text-perf-muted uppercase tracking-wider">Severity</span>
+          <span className="text-[11px] text-perf-muted uppercase tracking-wider">严重程度</span>
           <div className="flex gap-0.5 bg-perf-surface/50 rounded-lg p-0.5">
             {(['all', 'P1', 'P2+'] as const).map((s) => (
               <button
@@ -119,7 +120,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
                     : 'bg-transparent text-perf-muted hover:text-perf-text-dim'
                 }`}
               >
-                {s === 'all' ? 'All' : s}
+                {s === 'all' ? '全部' : s}
               </button>
             ))}
           </div>
@@ -136,7 +137,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
 
       {!loading && !error && data.length === 0 && (
         <div className="text-status-ok text-center py-10 text-[15px]">
-          ✅ No regressions in selected range
+          ✅ 所选范围内无回归
         </div>
       )}
 
@@ -158,7 +159,8 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
                   <span className="text-sm font-semibold">
                     {STATUS_ICON[job.status] || '⚪'}{' '}
                     <span className={SEVERITY_COLOR[sev] || 'text-perf-text'}>[{sev}]</span>{' '}
-                    {job.platform}
+                    {platformLabel(job.platform)}
+                    {' '}<span className="text-perf-muted font-normal text-xs">{statusLabel(job.status)}</span>
                   </span>
                   <span className="text-xs text-perf-muted">
                     {format(new Date(job.started_at), 'yyyy-MM-dd HH:mm')}
@@ -173,21 +175,21 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
 
                 <div className="flex flex-wrap gap-2">
                   <MetricPill
-                    label="Startup"
+                    label="启动"
                     value={fmt(job.start_ms)}
                     threshold={fmt(job.start_threshold)}
                     delta={deltaStart}
                     bad={!!job.delta_pct_start && job.delta_pct_start > 0}
                   />
                   <MetricPill
-                    label="Refresh"
+                    label="刷新"
                     value={fmt(job.span_ms)}
                     threshold={fmt(job.span_threshold)}
                     delta={deltaSpan}
                     bad={!!job.delta_pct_span && job.delta_pct_span > 0}
                   />
                   <MetricPill
-                    label="Fn calls"
+                    label="函数调用"
                     value={job.fc_count != null ? String(Math.round(job.fc_count)) : '–'}
                     threshold={null}
                     delta={null}
@@ -204,20 +206,20 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
           <span className="text-xs text-perf-muted">
-            Page {page} of {totalPages} ({total} regressions)
+            第 {page} 页，共 {totalPages} 页（{total} 个回归）
           </span>
           <div className="flex gap-2">
             <PaginationButton
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
             >
-              Previous
+              上一页
             </PaginationButton>
             <PaginationButton
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
             >
-              Next
+              下一页
             </PaginationButton>
           </div>
         </div>

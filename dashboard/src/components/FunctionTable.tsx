@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Select } from './ui/Select';
 import { ErrorBanner } from './ui/ErrorBanner';
 import { TableSkeleton } from './ui/Skeleton';
+import { platformLabel } from '../constants';
 import type { PerfFnStat } from '../types';
 
 type SortKey = keyof PerfFnStat;
@@ -43,7 +44,7 @@ export function FunctionTable({ platforms }: Props) {
           setTotal(res.total);
         }
       })
-      .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load function data')); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || '加载函数数据失败')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [selectedPlatform, days, page]);
@@ -72,13 +73,13 @@ export function FunctionTable({ platforms }: Props) {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const cols: { key: SortKey; label: string; fmt?: (v: number | null) => string }[] = [
-    { key: 'fn_name', label: 'Function' },
-    { key: 'fn_module', label: 'Module' },
-    { key: 'session_count', label: 'Sessions', fmt: (v) => String(v ?? '–') },
-    { key: 'avg_call_count', label: 'Avg calls', fmt: (v) => v != null ? v.toFixed(1) : '–' },
-    { key: 'avg_p95_ms', label: 'p95 ms (avg)', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
-    { key: 'max_p95_ms', label: 'p95 ms (max)', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
-    { key: 'avg_avg_ms', label: 'Avg ms', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
+    { key: 'fn_name', label: '函数' },
+    { key: 'fn_module', label: '模块' },
+    { key: 'session_count', label: '会话数', fmt: (v) => String(v ?? '–') },
+    { key: 'avg_call_count', label: '平均调用', fmt: (v) => v != null ? v.toFixed(1) : '–' },
+    { key: 'avg_p95_ms', label: 'p95(平均)', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
+    { key: 'max_p95_ms', label: 'p95(最大)', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
+    { key: 'avg_avg_ms', label: '平均耗时', fmt: (v) => v != null ? `${v.toFixed(1)}ms` : '–' },
     { key: 'delta_avg_p95_ms' as SortKey, label: 'Δ p95', fmt: (v) => {
       if (v == null) return '–';
       const sign = v > 0 ? '+' : '';
@@ -90,29 +91,29 @@ export function FunctionTable({ platforms }: Props) {
     <div>
       <div className="flex flex-wrap gap-3 mb-5 items-end">
         <Select
-          label="Platform"
+          label="平台"
           value={selectedPlatform}
           onChange={(v) => { setSelectedPlatform(v); setPage(1); }}
-          options={[{ value: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ value: p, label: p }))]}
+          options={[{ value: 'all', label: '全部平台' }, ...platforms.map((p) => ({ value: p, label: platformLabel(p) }))]}
         />
         <Select
-          label="Range"
+          label="时间范围"
           value={String(days)}
           onChange={(v) => { setDays(Number(v)); setPage(1); }}
           options={[
-            { value: '3', label: '3 days' },
-            { value: '7', label: '7 days' },
-            { value: '14', label: '14 days' },
-            { value: '30', label: '30 days' },
+            { value: '3', label: '3 天' },
+            { value: '7', label: '7 天' },
+            { value: '14', label: '14 天' },
+            { value: '30', label: '30 天' },
           ]}
         />
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-perf-muted uppercase tracking-wider">Search</span>
+          <span className="text-[11px] text-perf-muted uppercase tracking-wider">搜索</span>
           <input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="function or module…"
+            placeholder="搜索函数或模块..."
             className="bg-perf-surface border border-perf-border rounded-lg text-perf-text px-2.5 py-1.5 text-[13px] w-[200px] placeholder:text-perf-muted outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50 focus-visible:border-perf-accent/60"
           />
         </label>
@@ -178,7 +179,7 @@ export function FunctionTable({ platforms }: Props) {
               {sorted.length === 0 && !loading && (
                 <tr>
                   <td colSpan={cols.length} className="px-3 py-6 text-perf-muted text-center border-t border-perf-surface/50">
-                    No data
+                    暂无数据
                   </td>
                 </tr>
               )}
@@ -191,20 +192,20 @@ export function FunctionTable({ platforms }: Props) {
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
           <span className="text-xs text-perf-muted">
-            Page {page} of {totalPages} ({total} functions)
+            第 {page} 页，共 {totalPages} 页（{total} 个函数）
           </span>
           <div className="flex gap-2">
             <PaginationButton
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
             >
-              Previous
+              上一页
             </PaginationButton>
             <PaginationButton
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
             >
-              Next
+              下一页
             </PaginationButton>
           </div>
         </div>

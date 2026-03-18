@@ -267,7 +267,10 @@ async function handleCompare(request, env) {
            AVG(start_ms) AS avg_start_ms,
            AVG(span_ms)  AS avg_span_ms,
            AVG(fc_count) AS avg_fc_count,
-           SUM(CASE WHEN regression = 1 THEN 1 ELSE 0 END) AS regression_count
+           SUM(CASE WHEN regression = 1 THEN 1 ELSE 0 END) AS regression_count,
+           AVG(start_threshold) AS avg_start_threshold,
+           AVG(span_threshold)  AS avg_span_threshold,
+           AVG(fc_threshold)    AS avg_fc_threshold
     FROM perf_jobs
     WHERE started_at >= ? AND started_at < ?`;
   const binds = [fromTs, toEnd];

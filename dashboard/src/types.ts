@@ -63,6 +63,9 @@ export interface CompareRow {
   avg_span_ms: number | null;
   avg_fc_count: number | null;
   regression_count: number;
+  avg_start_threshold: number | null;
+  avg_span_threshold: number | null;
+  avg_fc_threshold: number | null;
 }
 
 export interface JobDetailResponse {

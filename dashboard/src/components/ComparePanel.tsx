@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { format, subDays } from 'date-fns';
 import { api } from '../api';
 import { Select } from './ui/Select';
 import { ErrorBanner } from './ui/ErrorBanner';
 import { ChartSkeleton } from './ui/Skeleton';
+import { platformLabel } from '../constants';
 import type { CompareRow, PerfJob, JobDetailResponse } from '../types';
 
 const METRICS = [
-  { key: 'avg_start_ms', label: 'Startup ms' },
-  { key: 'avg_span_ms', label: 'Refresh span ms' },
-  { key: 'avg_fc_count', label: 'Function calls' },
+  { key: 'avg_start_ms', label: '启动延迟' },
+  { key: 'avg_span_ms', label: '刷新耗时' },
+  { key: 'avg_fc_count', label: '函数调用次数' },
 ] as const;
 
 type MetricKey = (typeof METRICS)[number]['key'];
@@ -70,7 +71,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
       api.compare(dateB, dateB, p),
     ])
       .then(([a, b]) => { setDataA(a); setDataB(b); })
-      .catch((e) => setError(String(e?.message || 'Failed to load compare data')))
+      .catch((e) => setError(String(e?.message || '加载对比数据失败')))
       .finally(() => setLoading(false));
   }, [dateA, dateB, selectedPlatform, mode]);
 
@@ -84,7 +85,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
       api.jobDetail(jobIdB),
     ])
       .then(([a, b]) => { setJobDetailA(a); setJobDetailB(b); })
-      .catch((e) => setError(String(e?.message || 'Failed to load job details')))
+      .catch((e) => setError(String(e?.message || '加载任务详情失败')))
       .finally(() => setJobLoading(false));
   }, [jobIdA, jobIdB, mode]);
 
@@ -96,12 +97,30 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
     const rowB = dataB.find((r) => r.platform === p);
     return {
       platform: p,
+      platformLabel: platformLabel(p),
       [dateA]: rowA?.[metric] ?? null,
       [dateB]: rowB?.[metric] ?? null,
     };
   }).filter((r) => r[dateA] != null || r[dateB] != null);
 
+  // Compute average threshold for the selected metric
+  const thresholdKey = metric === 'avg_start_ms' ? 'avg_start_threshold'
+    : metric === 'avg_span_ms' ? 'avg_span_threshold'
+    : 'avg_fc_threshold';
+  const thresholdVals = [...dataA, ...dataB]
+    .map((r) => r[thresholdKey])
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  const avgThreshold = thresholdVals.length > 0
+    ? thresholdVals.reduce((a, b) => a + b, 0) / thresholdVals.length
+    : null;
+
   const delta = (a: number | null, b: number | null) => {
+    if (a == null || b == null || a === 0) return null;
+    return (((b - a) / a) * 100).toFixed(1);
+  };
+
+  // Job mode delta helper
+  const jobDelta = (a: number | null, b: number | null) => {
     if (a == null || b == null || a === 0) return null;
     return (((b - a) / a) * 100).toFixed(1);
   };
@@ -120,7 +139,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
                 : 'bg-transparent text-perf-muted hover:text-perf-text-dim'
             }`}
           >
-            {m === 'date' ? 'Date mode' : 'Job mode'}
+            {m === 'date' ? '按日期' : '按任务'}
           </button>
         ))}
       </div>
@@ -130,7 +149,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
         {mode === 'date' ? (
           <>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] text-perf-muted uppercase tracking-wider">Date A</span>
+              <span className="text-[11px] text-perf-muted uppercase tracking-wider">日期 A</span>
               <input
                 type="date"
                 value={dateA}
@@ -139,7 +158,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] text-perf-muted uppercase tracking-wider">Date B</span>
+              <span className="text-[11px] text-perf-muted uppercase tracking-wider">日期 B</span>
               <input
                 type="date"
                 value={dateB}
@@ -148,13 +167,13 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
               />
             </label>
             <Select
-              label="Platform"
+              label="平台"
               value={selectedPlatform}
               onChange={setSelectedPlatform}
-              options={[{ value: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ value: p, label: p }))]}
+              options={[{ value: 'all', label: '全部平台' }, ...platforms.map((p) => ({ value: p, label: platformLabel(p) }))]}
             />
             <Select
-              label="Metric"
+              label="指标"
               value={metric}
               onChange={(v) => setMetric(v as MetricKey)}
               options={METRICS.map((m) => ({ value: m.key, label: m.label }))}
@@ -163,21 +182,21 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
         ) : (
           <>
             <Select
-              label="Job A"
+              label="任务 A"
               value={jobIdA}
               onChange={setJobIdA}
               options={recentJobs.map((j) => ({
                 value: j.job_id,
-                label: `${j.platform} ${format(new Date(j.started_at), 'MM/dd HH:mm')} ${j.commit_sha?.slice(0, 7) || ''}`,
+                label: `${platformLabel(j.platform)} ${format(new Date(j.started_at), 'MM/dd HH:mm')} ${j.commit_sha?.slice(0, 7) || ''}`,
               }))}
             />
             <Select
-              label="Job B"
+              label="任务 B"
               value={jobIdB}
               onChange={setJobIdB}
               options={recentJobs.map((j) => ({
                 value: j.job_id,
-                label: `${j.platform} ${format(new Date(j.started_at), 'MM/dd HH:mm')} ${j.commit_sha?.slice(0, 7) || ''}`,
+                label: `${platformLabel(j.platform)} ${format(new Date(j.started_at), 'MM/dd HH:mm')} ${j.commit_sha?.slice(0, 7) || ''}`,
               }))}
             />
           </>
@@ -193,9 +212,10 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-perf-surface)" />
-                  <XAxis dataKey="platform" tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 12 }} />
+                  <XAxis dataKey="platformLabel" tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 12 }} />
                   <YAxis tick={{ fill: 'var(--color-perf-text-dim)', fontSize: 11 }} />
                   <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                     contentStyle={{
                       background: 'var(--color-perf-surface)',
                       border: '1px solid var(--color-perf-border)',
@@ -207,6 +227,14 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
                   <Legend wrapperStyle={{ fontSize: 12, color: 'var(--color-perf-text-dim)' }} />
                   <Bar dataKey={dateA} name={`${dateA} (A)`} fill="#60a5fa" radius={[4, 4, 0, 0]} />
                   <Bar dataKey={dateB} name={`${dateB} (B)`} fill="#34d399" radius={[4, 4, 0, 0]} />
+                  {avgThreshold != null && metric !== 'avg_fc_count' && (
+                    <ReferenceLine
+                      y={avgThreshold}
+                      stroke="var(--color-status-regression)"
+                      strokeDasharray="6 3"
+                      label={{ value: '阈值', fill: 'var(--color-status-regression)', fontSize: 11, position: 'insideTopRight' }}
+                    />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -218,7 +246,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
               <table className="w-full border-collapse text-[13px]">
                 <thead>
                   <tr>
-                    {['Platform', `${dateA} (A)`, `${dateB} (B)`, 'Δ %'].map((h) => (
+                    {['平台', `${dateA} (A)`, `${dateB} (B)`, 'Δ %'].map((h) => (
                       <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
                         {h}
                       </th>
@@ -234,7 +262,7 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
                     const isBetter = d != null && parseFloat(d) < -5;
                     return (
                       <tr key={row.platform} className="hover:bg-perf-hover transition-colors">
-                        <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text">{row.platform}</td>
+                        <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text">{platformLabel(row.platform)}</td>
                         <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text">{a != null ? Math.round(a) : '–'}</td>
                         <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text">{b != null ? Math.round(b) : '–'}</td>
                         <td className={`px-3 py-2 border-t border-perf-surface/50 font-semibold ${isWorse ? 'text-status-regression' : isBetter ? 'text-status-ok' : 'text-perf-text-dim'}`}>
@@ -255,34 +283,76 @@ export function ComparePanel({ platforms, onJobClick }: Props) {
         <>
           {jobLoading ? <ChartSkeleton /> : (
             jobDetailA && jobDetailB && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[jobDetailA, jobDetailB].map((detail, idx) => (
-                  <div key={idx} className="bg-perf-card border border-perf-surface rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-semibold">{detail.job.platform}</span>
-                      <span className="text-xs text-perf-muted">
-                        {format(new Date(detail.job.started_at), 'yyyy-MM-dd HH:mm')}
-                      </span>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[jobDetailA, jobDetailB].map((detail, idx) => (
+                    <div key={idx} className="bg-perf-card border border-perf-surface rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold">{platformLabel(detail.job.platform)}</span>
+                        <span className="text-xs text-perf-muted">
+                          {format(new Date(detail.job.started_at), 'yyyy-MM-dd HH:mm')}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <MetricBox label="启动" value={detail.job.start_ms} unit="ms" />
+                        <MetricBox label="刷新" value={detail.job.span_ms} unit="ms" />
+                        <MetricBox label="函数调用" value={detail.job.fc_count} />
+                      </div>
+                      <div className="text-xs text-perf-muted">
+                        {detail.runs.length} 轮运行, {detail.fn_stats.length} 个函数
+                      </div>
+                      {onJobClick && (
+                        <button
+                          onClick={() => onJobClick(detail.job.job_id)}
+                          className="mt-2 text-xs text-perf-accent hover:underline bg-transparent border-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50 rounded-md px-1"
+                        >
+                          查看详情 →
+                        </button>
+                      )}
                     </div>
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      <MetricBox label="Startup" value={detail.job.start_ms} unit="ms" />
-                      <MetricBox label="Refresh" value={detail.job.span_ms} unit="ms" />
-                      <MetricBox label="Fn calls" value={detail.job.fc_count} />
-                    </div>
-                    <div className="text-xs text-perf-muted">
-                      {detail.runs.length} runs, {detail.fn_stats.length} functions tracked
-                    </div>
-                    {onJobClick && (
-                      <button
-                        onClick={() => onJobClick(detail.job.job_id)}
-                        className="mt-2 text-xs text-perf-accent hover:underline bg-transparent border-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50 rounded-md px-1"
-                      >
-                        View details →
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+
+                {/* Delta comparison table */}
+                <div className="mt-5 rounded-lg overflow-hidden border border-perf-surface">
+                  <table className="w-full border-collapse text-[13px]">
+                    <thead>
+                      <tr>
+                        {['指标', '任务 A', '任务 B', 'Δ %'].map((h) => (
+                          <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {([
+                        { label: '启动', a: jobDetailA.job.start_ms, b: jobDetailB.job.start_ms, unit: 'ms' },
+                        { label: '刷新', a: jobDetailA.job.span_ms, b: jobDetailB.job.span_ms, unit: 'ms' },
+                        { label: '函数调用', a: jobDetailA.job.fc_count, b: jobDetailB.job.fc_count, unit: '' },
+                      ] as const).map((row) => {
+                        const d = jobDelta(row.a, row.b);
+                        const isWorse = d != null && parseFloat(d) > 5;
+                        const isBetter = d != null && parseFloat(d) < -5;
+                        return (
+                          <tr key={row.label} className="hover:bg-perf-hover transition-colors">
+                            <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-medium">{row.label}</td>
+                            <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono">
+                              {row.a != null ? `${Math.round(row.a)}${row.unit}` : '–'}
+                            </td>
+                            <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono">
+                              {row.b != null ? `${Math.round(row.b)}${row.unit}` : '–'}
+                            </td>
+                            <td className={`px-3 py-2 border-t border-perf-surface/50 font-semibold ${isWorse ? 'text-status-regression' : isBetter ? 'text-status-ok' : 'text-perf-text-dim'}`}>
+                              {d != null ? `${parseFloat(d) > 0 ? '+' : ''}${d}%` : '–'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )
           )}
         </>

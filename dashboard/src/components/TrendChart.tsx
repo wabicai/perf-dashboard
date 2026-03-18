@@ -8,6 +8,7 @@ import { api } from '../api';
 import { Select } from './ui/Select';
 import { ErrorBanner } from './ui/ErrorBanner';
 import { ChartSkeleton } from './ui/Skeleton';
+import { platformLabel } from '../constants';
 import type { PerfJob, Platform } from '../types';
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -19,9 +20,9 @@ const PLATFORM_COLORS: Record<string, string> = {
 };
 
 const METRICS = [
-  { key: 'start_ms', label: 'Startup (tokensStartMs)', unit: 'ms' },
-  { key: 'span_ms', label: 'Refresh span (tokensSpanMs)', unit: 'ms' },
-  { key: 'fc_count', label: 'Function calls', unit: '' },
+  { key: 'start_ms', label: '启动延迟', unit: 'ms' },
+  { key: 'span_ms', label: '刷新耗时', unit: 'ms' },
+  { key: 'fc_count', label: '函数调用次数', unit: '' },
 ] as const;
 
 type MetricKey = (typeof METRICS)[number]['key'];
@@ -46,7 +47,7 @@ export function TrendChart({ platforms, onJobClick }: Props) {
     api
       .trend(selectedPlatform === 'all' ? undefined : selectedPlatform, days)
       .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(String(e?.message || 'Failed to load trend data')); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || '加载趋势数据失败')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [selectedPlatform, days]);
@@ -110,26 +111,26 @@ export function TrendChart({ platforms, onJobClick }: Props) {
       {/* Controls */}
       <div className="flex flex-wrap gap-3 mb-5 items-center">
         <Select
-          label="Platform"
+          label="平台"
           value={selectedPlatform}
           onChange={setSelectedPlatform}
-          options={[{ value: 'all', label: 'All platforms' }, ...platforms.map((p) => ({ value: p, label: p }))]}
+          options={[{ value: 'all', label: '全部平台' }, ...platforms.map((p) => ({ value: p, label: platformLabel(p) }))]}
         />
         <Select
-          label="Metric"
+          label="指标"
           value={metric}
           onChange={(v) => setMetric(v as MetricKey)}
           options={METRICS.map((m) => ({ value: m.key, label: m.label }))}
         />
         <Select
-          label="Range"
+          label="时间范围"
           value={String(days)}
           onChange={(v) => setDays(Number(v))}
           options={[
-            { value: '7', label: '7 days' },
-            { value: '14', label: '14 days' },
-            { value: '30', label: '30 days' },
-            { value: '60', label: '60 days' },
+            { value: '7', label: '7 天' },
+            { value: '14', label: '14 天' },
+            { value: '30', label: '30 天' },
+            { value: '60', label: '60 天' },
           ]}
         />
       </div>
@@ -152,6 +153,7 @@ export function TrendChart({ platforms, onJobClick }: Props) {
                 tickFormatter={(v) => metricInfo.unit ? `${v}${metricInfo.unit}` : String(v)}
               />
               <Tooltip
+                cursor={{ stroke: 'rgba(255,255,255,0.15)' }}
                 contentStyle={{
                   background: 'var(--color-perf-surface)',
                   border: '1px solid var(--color-perf-border)',
@@ -170,7 +172,7 @@ export function TrendChart({ platforms, onJobClick }: Props) {
                   y={avgThreshold}
                   stroke="var(--color-status-regression)"
                   strokeDasharray="6 3"
-                  label={{ value: 'Threshold', fill: 'var(--color-status-regression)', fontSize: 11, position: 'right' }}
+                  label={{ value: '阈值', fill: 'var(--color-status-regression)', fontSize: 11, position: 'right' }}
                 />
               )}
 
@@ -179,7 +181,7 @@ export function TrendChart({ platforms, onJobClick }: Props) {
                   key={p}
                   type="monotone"
                   dataKey={p}
-                  name={p}
+                  name={platformLabel(p)}
                   stroke={PLATFORM_COLORS[p] || 'var(--color-perf-text-dim)'}
                   strokeWidth={2}
                   dot={false}
@@ -199,13 +201,13 @@ export function TrendChart({ platforms, onJobClick }: Props) {
       {/* Regression events list */}
       {chartData.filter((r) => r.regression).length > 0 && (
         <div className="mt-3 px-3 py-2 bg-perf-reg-bg border border-err-border rounded-lg text-xs flex flex-wrap items-center gap-1.5">
-          <span className="text-err-text font-semibold mr-2">⚠ Regressions in range:</span>
+          <span className="text-err-text font-semibold mr-2">⚠ 范围内检测到回归:</span>
           {chartData
             .filter((r) => r.regression)
             .slice(0, 5)
             .map((r) => (
               <span key={`${r.ts}-${r.platform}`} className="bg-err-bg text-err-text rounded-md px-2 py-0.5 text-[11px]">
-                {r.platform} {r.label} {r.commit && `(${r.commit})`}
+                {platformLabel(r.platform)} {r.label} {r.commit && `(${r.commit})`}
               </span>
             ))}
         </div>

@@ -7,15 +7,16 @@ import { RegressionTimeline } from './components/RegressionTimeline';
 import { JobDetailModal } from './components/JobDetailModal';
 import { ErrorBanner } from './components/ui/ErrorBanner';
 import { Skeleton } from './components/ui/Skeleton';
+import { platformLabel, statusLabel } from './constants';
 import type { PerfJob } from './types';
 
 type Tab = 'trend' | 'compare' | 'functions' | 'regressions';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'trend', label: 'Trend' },
-  { id: 'compare', label: 'Compare' },
-  { id: 'functions', label: 'Functions' },
-  { id: 'regressions', label: 'Regressions' },
+  { id: 'trend', label: '趋势' },
+  { id: 'compare', label: '对比' },
+  { id: 'functions', label: '函数' },
+  { id: 'regressions', label: '回归' },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -39,22 +40,22 @@ function SummaryCard({ job, onClick }: { job: PerfJob; onClick?: () => void }) {
       onKeyDown={(e) => { if (e.key === 'Enter') onClick?.(); }}
     >
       <div className="text-[11px] text-perf-muted uppercase tracking-wider mb-1.5">
-        {job.platform}
+        {platformLabel(job.platform)}
       </div>
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-[22px] font-bold text-perf-text">
           {job.start_ms != null ? `${Math.round(job.start_ms)}ms` : '–'}
         </span>
-        <span className="text-[11px] text-perf-muted">startup</span>
+        <span className="text-[11px] text-perf-muted">启动</span>
       </div>
       <div className="flex items-baseline gap-2 mb-2">
         <span className="text-base font-semibold text-perf-text-dim">
           {job.span_ms != null ? `${Math.round(job.span_ms)}ms` : '–'}
         </span>
-        <span className="text-[11px] text-perf-muted">refresh</span>
+        <span className="text-[11px] text-perf-muted">刷新</span>
       </div>
       <div className={`inline-block text-[11px] font-semibold rounded-md px-1.5 py-0.5 ${STATUS_TEXT_COLOR[job.status] || 'text-perf-muted bg-perf-muted/10'}`}>
-        {job.status}
+        {statusLabel(job.status)}
       </div>
       {job.app_version && (
         <div className="text-[10px] text-perf-text-faint mt-1">{job.app_version}</div>
@@ -78,7 +79,7 @@ export function App() {
       api.platforms().then(setPlatforms),
       api.summary().then(setSummary),
     ])
-      .catch((e) => setInitError(String(e?.message || 'Failed to connect to analytics worker')))
+      .catch((e) => setInitError(String(e?.message || '无法连接分析服务')))
       .finally(() => setInitLoading(false));
   }, []);
 
@@ -103,7 +104,7 @@ export function App() {
       <div className="border-b border-perf-surface px-6">
         <div className="max-w-[1200px] mx-auto">
           <div className="flex items-center gap-3 pt-4">
-            <span className="text-xl font-bold text-perf-text">Perf Dashboard</span>
+            <span className="text-xl font-bold text-perf-text">性能看板</span>
             <span className="text-xs text-perf-text-faint bg-perf-surface rounded-md px-2 py-0.5">
               OneKey Performance Analytics
             </span>

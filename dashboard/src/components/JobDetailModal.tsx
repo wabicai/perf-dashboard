@@ -4,6 +4,7 @@ import { api } from '../api';
 import { ErrorBanner } from './ui/ErrorBanner';
 import { Skeleton } from './ui/Skeleton';
 import { Chip } from './ui/Chip';
+import { platformLabel, statusLabel } from '../constants';
 import type { JobDetailResponse, PerfRun, PerfMark, PerfFnStat } from '../types';
 
 interface Props {
@@ -21,7 +22,7 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     setError(null);
     api.jobDetail(jobId)
       .then(setData)
-      .catch((e) => setError(String(e?.message || 'Failed to load job details')))
+      .catch((e) => setError(String(e?.message || '加载任务详情失败')))
       .finally(() => setLoading(false));
   }, [jobId]);
 
@@ -41,7 +42,7 @@ export function JobDetailModal({ jobId, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-perf-surface">
           <div>
-            <h2 className="text-lg font-bold text-perf-text m-0">Job Detail</h2>
+            <h2 className="text-lg font-bold text-perf-text m-0">任务详情</h2>
             <span className="text-xs text-perf-muted font-mono">{jobId}</span>
           </div>
           <button
@@ -88,13 +89,13 @@ function JobSummary({ job }: { job: JobDetailResponse['job'] }) {
   return (
     <div className="bg-perf-card border border-perf-surface rounded-lg p-4">
       <div className="flex items-center gap-3 mb-3">
-        <span className="text-sm font-semibold">{job.platform}</span>
+        <span className="text-sm font-semibold">{platformLabel(job.platform)}</span>
         <span className={`text-[11px] font-semibold rounded-md px-1.5 py-0.5 ${
           job.status === 'ok' ? 'text-status-ok bg-status-ok/10' :
           job.status === 'regression' ? 'text-status-regression bg-status-regression/10' :
           'text-status-failed bg-status-failed/10'
         }`}>
-          {job.status}
+          {statusLabel(job.status)}
         </span>
         <span className="text-xs text-perf-muted">
           {format(new Date(job.started_at), 'yyyy-MM-dd HH:mm:ss')}
@@ -104,12 +105,12 @@ function JobSummary({ job }: { job: JobDetailResponse['job'] }) {
         {job.branch && <Chip>{job.branch}</Chip>}
         {job.commit_sha && <Chip mono>{job.commit_sha.slice(0, 7)}</Chip>}
         {job.app_version && <Chip>v{job.app_version}</Chip>}
-        {job.run_count != null && <Chip>{job.run_count} runs</Chip>}
+        {job.run_count != null && <Chip>{job.run_count} 轮</Chip>}
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <MetricCard label="Startup" value={job.start_ms} unit="ms" threshold={job.start_threshold} delta={job.delta_pct_start} />
-        <MetricCard label="Refresh" value={job.span_ms} unit="ms" threshold={job.span_threshold} delta={job.delta_pct_span} />
-        <MetricCard label="Fn calls" value={job.fc_count} threshold={job.fc_threshold} />
+        <MetricCard label="启动" value={job.start_ms} unit="ms" threshold={job.start_threshold} delta={job.delta_pct_start} />
+        <MetricCard label="刷新" value={job.span_ms} unit="ms" threshold={job.span_threshold} delta={job.delta_pct_span} />
+        <MetricCard label="函数调用" value={job.fc_count} threshold={job.fc_threshold} />
       </div>
     </div>
   );
@@ -127,7 +128,7 @@ function MetricCard({ label, value, unit, threshold, delta }: {
       </div>
       <div className="flex items-center gap-2 mt-1">
         {threshold != null && (
-          <span className="text-[11px] text-perf-muted">threshold: {Math.round(threshold)}{unit || ''}</span>
+          <span className="text-[11px] text-perf-muted">阈值: {Math.round(threshold)}{unit || ''}</span>
         )}
         {delta != null && (
           <span className={`text-[11px] font-semibold ${bad ? 'text-status-regression' : 'text-status-ok'}`}>
@@ -147,12 +148,12 @@ function RunsTable({ runs, job }: { runs: PerfRun[]; job: JobDetailResponse['job
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-perf-text mb-3">Per-Run Metrics</h3>
+      <h3 className="text-sm font-semibold text-perf-text mb-3">每轮指标</h3>
       <div className="rounded-lg overflow-hidden border border-perf-surface">
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr>
-              {['Run', 'Startup ms', 'Refresh ms', 'Fn calls', 'vs Threshold'].map((h) => (
+              {['轮次', '启动 ms', '刷新 ms', '函数调用', '阈值状态'].map((h) => (
                 <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
                   {h}
                 </th>
@@ -168,7 +169,7 @@ function RunsTable({ runs, job }: { runs: PerfRun[]; job: JobDetailResponse['job
                 <tr key={i} className={`hover:bg-perf-hover transition-colors ${isMedian ? 'bg-perf-accent/5' : i % 2 !== 0 ? 'bg-perf-row-alt' : ''}`}>
                   <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text">
                     #{run.run_index ?? i + 1}
-                    {isMedian && <span className="ml-1.5 text-[10px] text-perf-accent font-medium">MEDIAN</span>}
+                    {isMedian && <span className="ml-1.5 text-[10px] text-perf-accent font-medium">中位数</span>}
                   </td>
                   <td className={`px-3 py-2 border-t border-perf-surface/50 font-mono ${startExceeds ? 'text-err-text font-semibold' : 'text-perf-text'}`}>
                     {run.start_ms != null ? `${Math.round(run.start_ms)}ms` : '–'}
@@ -181,9 +182,9 @@ function RunsTable({ runs, job }: { runs: PerfRun[]; job: JobDetailResponse['job
                   </td>
                   <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text">
                     {startExceeds || spanExceeds ? (
-                      <span className="text-err-text text-xs font-medium">Exceeds threshold</span>
+                      <span className="text-err-text text-xs font-medium">超过阈值</span>
                     ) : (
-                      <span className="text-status-ok text-xs font-medium">OK</span>
+                      <span className="text-status-ok text-xs font-medium">正常</span>
                     )}
                   </td>
                 </tr>
@@ -202,7 +203,7 @@ function MarksTimeline({ marks }: { marks: PerfMark[] }) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-perf-text mb-3">Marks Timeline</h3>
+      <h3 className="text-sm font-semibold text-perf-text mb-3">关键标记时间线</h3>
       <div className="bg-perf-card border border-perf-surface rounded-lg p-4">
         {/* Horizontal bar */}
         <div className="relative h-10 bg-perf-surface/50 rounded-full mb-4">
@@ -237,12 +238,12 @@ function SlowFunctions({ fnStats }: { fnStats: PerfFnStat[] }) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-perf-text mb-3">Top Slow Functions</h3>
+      <h3 className="text-sm font-semibold text-perf-text mb-3">最慢函数 TOP 10</h3>
       <div className="rounded-lg overflow-hidden border border-perf-surface">
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr>
-              {['Function', 'Module', 'p95 ms', 'Avg ms', 'Calls'].map((h) => (
+              {['函数', '模块', 'p95 ms', '平均 ms', '调用次数'].map((h) => (
                 <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
                   {h}
                 </th>
