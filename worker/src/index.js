@@ -483,6 +483,39 @@ async function handleJobDetail(jobId, env) {
   });
 }
 
+async function handleVersions(request, env) {
+  const url = new URL(request.url);
+  const platform = url.searchParams.get('platform') || null;
+  const days = Math.min(Number(url.searchParams.get('days') || 90), 365);
+  const since = Date.now() - days * 86400_000;
+
+  let query = `
+    SELECT app_version,
+           platform,
+           COUNT(*) AS job_count,
+           MIN(started_at) AS first_seen,
+           MAX(started_at) AS last_seen,
+           ROUND(AVG(start_ms), 1)       AS avg_start_ms,
+           ROUND(AVG(span_ms), 1)        AS avg_span_ms,
+           ROUND(AVG(fc_count), 1)       AS avg_fc_count,
+           ROUND(AVG(start_threshold), 1) AS avg_start_threshold,
+           ROUND(AVG(span_threshold), 1)  AS avg_span_threshold,
+           SUM(CASE WHEN regression = 1 THEN 1 ELSE 0 END) AS regression_count
+    FROM perf_jobs
+    WHERE started_at >= ? AND app_version IS NOT NULL`;
+  const binds = [since];
+
+  if (platform) {
+    query += ` AND platform = ?`;
+    binds.push(platform);
+  }
+
+  query += ` GROUP BY app_version, platform ORDER BY last_seen DESC`;
+
+  const { results } = await env.DB.prepare(query).bind(...binds).all();
+  return json(results);
+}
+
 // ---------------------------------------------------------------------------
 // Main fetch handler
 // ---------------------------------------------------------------------------
@@ -517,6 +550,7 @@ export default {
       if (path === '/api/compare')     return handleCompare(request, env);
       if (path === '/api/functions')   return handleFunctions(request, env);
       if (path === '/api/regressions') return handleRegressions(request, env);
+      if (path === '/api/versions')    return handleVersions(request, env);
       if (path === '/api/marks')       return handleMarks(request, env);
 
       // Job detail: /api/job/:job_id

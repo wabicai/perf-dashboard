@@ -84,9 +84,20 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
   }, [selectedPlatform, days, severityFilter, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const activeData = data.filter((j) => j.status === 'regression' || j.status === 'failed');
+  const recoveredData = data.filter((j) => j.status === 'recovered');
 
   return (
     <div>
+      {/* Explanation */}
+      <div className="mb-5 p-3 bg-perf-surface/50 rounded-lg border border-perf-surface text-[13px] text-perf-text-dim leading-relaxed">
+        <span className="font-semibold text-perf-text">什么是「回归」？</span>
+        {' '}当某次 CI 运行后，启动耗时或刷新耗时超过预设阈值，系统自动标记为回归。
+        P1 = 严重超标，P2 = 轻度超标。
+        <span className="text-status-ok ml-2">✅ 已恢复</span> = 后续 CI 已回到阈值以内。
+        {' '}重点关注：<span className="text-status-regression font-medium">哪个平台、哪次提交引入、Δ% 多少</span>。
+      </div>
+
       <div className="flex flex-wrap gap-3 mb-5 items-end">
         <Select
           label="平台"
@@ -106,7 +117,6 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
           ]}
         />
 
-        {/* Severity filter */}
         <div className="flex flex-col gap-1">
           <span className="text-[11px] text-perf-muted uppercase tracking-wider">严重程度</span>
           <div className="flex gap-0.5 bg-perf-surface/50 rounded-lg p-0.5">
@@ -141,65 +151,32 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
         </div>
       )}
 
-      {!loading && (
-        <div className="flex flex-col gap-2.5">
-          {data.map((job) => {
-            const sev = job.severity;
-            const deltaStart = fmtDelta(job.delta_pct_start);
-            const deltaSpan = fmtDelta(job.delta_pct_span);
-            return (
-              <div
-                key={job.job_id}
-                onClick={() => onJobClick?.(job.job_id)}
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') onJobClick?.(job.job_id); }}
-                className={`bg-perf-card border border-perf-surface border-l-[3px] ${SEVERITY_BORDER[sev] || 'border-l-perf-muted'} rounded-lg px-4 py-3 flex flex-col gap-2 cursor-pointer hover:bg-perf-hover transition-colors outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">
-                    {STATUS_ICON[job.status] || '⚪'}{' '}
-                    <span className={SEVERITY_COLOR[sev] || 'text-perf-text'}>[{sev}]</span>{' '}
-                    {platformLabel(job.platform)}
-                    {' '}<span className="text-perf-muted font-normal text-xs">{statusLabel(job.status)}</span>
-                  </span>
-                  <span className="text-xs text-perf-muted">
-                    {format(new Date(job.started_at), 'yyyy-MM-dd HH:mm')}
-                  </span>
-                </div>
+      {/* Active regressions */}
+      {!loading && activeData.length > 0 && (
+        <>
+          <div className="mb-2 text-[11px] text-status-regression font-semibold uppercase tracking-wider">
+            🔴 进行中 / 未恢复 ({activeData.length})
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {activeData.map((job) => (
+              <RegressionCard key={job.job_id} job={job} onJobClick={onJobClick} />
+            ))}
+          </div>
+        </>
+      )}
 
-                <div className="flex flex-wrap gap-1.5">
-                  {job.branch && <Chip>{job.branch}</Chip>}
-                  {job.commit_sha && <Chip mono>{job.commit_sha.slice(0, 7)}</Chip>}
-                  {job.app_version && <Chip>{job.app_version}</Chip>}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <MetricPill
-                    label="启动"
-                    value={fmt(job.start_ms)}
-                    threshold={fmt(job.start_threshold)}
-                    delta={deltaStart}
-                    bad={!!job.delta_pct_start && job.delta_pct_start > 0}
-                  />
-                  <MetricPill
-                    label="刷新"
-                    value={fmt(job.span_ms)}
-                    threshold={fmt(job.span_threshold)}
-                    delta={deltaSpan}
-                    bad={!!job.delta_pct_span && job.delta_pct_span > 0}
-                  />
-                  <MetricPill
-                    label="函数调用"
-                    value={job.fc_count != null ? String(Math.round(job.fc_count)) : '–'}
-                    threshold={null}
-                    delta={null}
-                    bad={false}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* Recovered */}
+      {!loading && recoveredData.length > 0 && (
+        <>
+          <div className="mt-5 mb-2 text-[11px] text-status-ok font-semibold uppercase tracking-wider">
+            ✅ 已恢复 ({recoveredData.length})
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {recoveredData.map((job) => (
+              <RegressionCard key={job.job_id} job={job} onJobClick={onJobClick} />
+            ))}
+          </div>
+        </>
       )}
 
       {/* Pagination */}
@@ -209,21 +186,72 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
             第 {page} 页，共 {totalPages} 页（{total} 个回归）
           </span>
           <div className="flex gap-2">
-            <PaginationButton
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
+            <PaginationButton onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
               上一页
             </PaginationButton>
-            <PaginationButton
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-            >
+            <PaginationButton onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
               下一页
             </PaginationButton>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function RegressionCard({ job, onJobClick }: { job: PerfJob; onJobClick?: (id: string) => void }) {
+  const sev = job.severity;
+  const deltaStart = fmtDelta(job.delta_pct_start);
+  const deltaSpan = fmtDelta(job.delta_pct_span);
+
+  return (
+    <div
+      onClick={() => onJobClick?.(job.job_id)}
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter') onJobClick?.(job.job_id); }}
+      className={`bg-perf-card border border-perf-surface border-l-[3px] ${SEVERITY_BORDER[sev] || 'border-l-perf-muted'} rounded-lg px-4 py-3 flex flex-col gap-2 cursor-pointer hover:bg-perf-hover transition-colors outline-none focus-visible:ring-2 focus-visible:ring-perf-accent/50`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">
+          {STATUS_ICON[job.status] || '⚪'}{' '}
+          <span className={SEVERITY_COLOR[sev] || 'text-perf-text'}>[{sev}]</span>{' '}
+          {platformLabel(job.platform)}
+          {' '}<span className="text-perf-muted font-normal text-xs">{statusLabel(job.status)}</span>
+        </span>
+        <span className="text-xs text-perf-muted">
+          {format(new Date(job.started_at), 'yyyy-MM-dd HH:mm')}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {job.branch && <Chip>{job.branch}</Chip>}
+        {job.commit_sha && <Chip mono>{job.commit_sha.slice(0, 7)}</Chip>}
+        {job.app_version && <Chip>v{job.app_version}</Chip>}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <MetricPill
+          label="启动"
+          value={fmt(job.start_ms)}
+          threshold={fmt(job.start_threshold)}
+          delta={deltaStart}
+          bad={!!job.delta_pct_start && job.delta_pct_start > 0}
+        />
+        <MetricPill
+          label="刷新"
+          value={fmt(job.span_ms)}
+          threshold={fmt(job.span_threshold)}
+          delta={deltaSpan}
+          bad={!!job.delta_pct_span && job.delta_pct_span > 0}
+        />
+        <MetricPill
+          label="函数调用"
+          value={job.fc_count != null ? String(Math.round(job.fc_count)) : '–'}
+          threshold={null}
+          delta={null}
+          bad={false}
+        />
+      </div>
     </div>
   );
 }

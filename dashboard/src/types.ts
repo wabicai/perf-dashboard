@@ -82,4 +82,18 @@ export interface PaginatedResponse<T> {
   per_page: number;
 }
 
+export interface VersionSummary {
+  app_version: string;
+  platform: Platform;
+  job_count: number;
+  first_seen: number;
+  last_seen: number;
+  avg_start_ms: number | null;
+  avg_span_ms: number | null;
+  avg_fc_count: number | null;
+  avg_start_threshold: number | null;
+  avg_span_threshold: number | null;
+  regression_count: number;
+}
+
 export type NavTab = 'trend' | 'compare' | 'functions' | 'regressions';

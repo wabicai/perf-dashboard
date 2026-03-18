@@ -1,4 +1,4 @@
-import type { PerfJob, PerfFnStat, CompareRow, JobDetailResponse, PaginatedResponse, PerfMark } from './types';
+import type { PerfJob, PerfFnStat, CompareRow, JobDetailResponse, PaginatedResponse, PerfMark, VersionSummary } from './types';
 
 const BASE = import.meta.env.VITE_WORKER_URL || '';
 
@@ -46,4 +46,9 @@ export const api = {
     get<JobDetailResponse>(`/api/job/${jobId}`),
   marks: (params: { job_id?: string; session_id?: string }) =>
     get<PerfMark[]>('/api/marks', params as Record<string, string>),
+  versions: (platform?: string, days?: number) =>
+    get<VersionSummary[]>('/api/versions', {
+      ...(platform ? { platform } : {}),
+      days: String(days ?? 90),
+    }),
 };
