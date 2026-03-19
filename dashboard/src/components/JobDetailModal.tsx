@@ -5,7 +5,7 @@ import { ErrorBanner } from './ui/ErrorBanner';
 import { Skeleton } from './ui/Skeleton';
 import { Chip } from './ui/Chip';
 import { platformLabel, statusLabel } from '../constants';
-import type { JobDetailResponse, PerfRun, PerfMark, PerfFnStat } from '../types';
+import type { JobDetailResponse, PerfRun, PerfFnStat } from '../types';
 
 interface Props {
   jobId: string;
@@ -71,9 +71,6 @@ export function JobDetailModal({ jobId, onClose }: Props) {
 
               {/* Top slow functions — most actionable info first */}
               {data.fn_stats.length > 0 && <SlowFunctions fnStats={data.fn_stats} />}
-
-              {/* Marks timeline */}
-              <MarksTimeline marks={data.marks} />
 
               {/* Per-run raw data — detail last */}
               {data.runs.length > 0 && <RunsTable runs={data.runs} job={data.job} />}
@@ -148,10 +145,11 @@ function RunsTable({ runs, job }: { runs: PerfRun[]; job: JobDetailResponse['job
 
   return (
     <div>
-      <div className="flex items-baseline gap-2 mb-3">
+      <div className="flex items-baseline gap-2 mb-1">
         <h3 className="text-sm font-semibold text-perf-text">各轮测试数据</h3>
         <span className="text-xs text-perf-muted">共 {runs.length} 轮，高亮行为中位数</span>
       </div>
+      <p className="text-xs text-perf-muted mb-3">每次 CI 会重复启动 app 多轮取中位数，此表展示每轮的原始测量值，可用于判断单轮异常或数据波动。</p>
       <div className="rounded-lg overflow-hidden border border-perf-surface">
         <table className="w-full border-collapse text-[13px]">
           <thead>
@@ -193,38 +191,6 @@ function RunsTable({ runs, job }: { runs: PerfRun[]; job: JobDetailResponse['job
   );
 }
 
-function MarksTimeline({ marks }: { marks: PerfMark[] }) {
-  // Use since_start_ms if available; fallback to relative offset from first ts
-  const firstTs = marks.find((m) => m.ts != null)?.ts ?? null;
-  const enriched = marks.map((m) => ({
-    ...m,
-    sinceMs: m.since_start_ms ?? (m.ts != null && firstTs != null ? m.ts - firstTs : null),
-  }));
-  const valid = enriched.filter((m) => m.sinceMs != null).sort((a, b) => a.sinceMs! - b.sinceMs!);
-
-  return (
-    <div>
-      <h3 className="text-sm font-semibold text-perf-text mb-3">关键标记时间线</h3>
-      <div className="bg-perf-card border border-perf-surface rounded-lg p-4">
-        {valid.length === 0 ? (
-          <p className="text-perf-muted text-xs">暂无标记数据</p>
-        ) : (
-          <div className="flex flex-col gap-0 max-h-[240px] overflow-y-auto">
-            {valid.map((mark, i) => (
-              <div key={i} className="flex items-center gap-3 py-1.5 border-b border-perf-surface/40 last:border-0">
-                <span className="text-[11px] font-mono text-perf-muted w-16 shrink-0 text-right">
-                  {Math.round(mark.sinceMs!)}ms
-                </span>
-                <span className="w-2 h-2 rounded-full bg-perf-accent shrink-0" />
-                <span className="text-[12px] text-perf-text font-medium">{mark.mark_name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function SlowFunctions({ fnStats }: { fnStats: PerfFnStat[] }) {
   const top10 = fnStats.slice(0, 10);
