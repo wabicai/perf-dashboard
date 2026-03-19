@@ -5,7 +5,7 @@ import { ErrorBanner } from './ui/ErrorBanner';
 import { Skeleton } from './ui/Skeleton';
 import { Chip } from './ui/Chip';
 import { platformLabel, statusLabel } from '../constants';
-import type { JobDetailResponse, PerfRun, PerfFnStat } from '../types';
+import type { JobDetailResponse, PerfRun, PerfFnStat, SessionInsights, InsightFunction } from '../types';
 
 interface Props {
   jobId: string;
@@ -69,8 +69,23 @@ export function JobDetailModal({ jobId, onClose }: Props) {
               {/* Job summary */}
               <JobSummary job={data.job} />
 
-              {/* Top slow functions — most actionable info first */}
+              {/* Home refresh window hotspot — most targeted info */}
+              {data.insights?.home_refresh && data.insights.home_refresh.topFunctions.length > 0 && (
+                <HomeRefreshSection homeRefresh={data.insights.home_refresh} />
+              )}
+
+              {/* Top slow functions — overall session */}
               {data.fn_stats.length > 0 && <SlowFunctions fnStats={data.fn_stats} />}
+
+              {/* JS thread block events */}
+              {data.insights?.jsblock && data.insights.jsblock.topWindows.length > 0 && (
+                <JsBlockSection jsblock={data.insights.jsblock} />
+              )}
+
+              {/* Rapid repeated calls */}
+              {data.insights?.repeated_calls && data.insights.repeated_calls.length > 0 && (
+                <RepeatedCallsSection calls={data.insights.repeated_calls} />
+              )}
 
               {/* Per-run raw data — detail last */}
               {data.runs.length > 0 && <RunsTable runs={data.runs} job={data.job} />}
@@ -191,6 +206,141 @@ function RunsTable({ runs, job }: { runs: PerfRun[]; job: JobDetailResponse['job
   );
 }
 
+
+function InsightFnTable({ fns }: { fns: InsightFunction[] }) {
+  return (
+    <div className="rounded-lg overflow-hidden border border-perf-surface">
+      <table className="w-full border-collapse text-[13px]">
+        <thead>
+          <tr>
+            {['函数', '模块', 'p95 ms', '平均 ms', '调用次数'].map((h) => (
+              <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {fns.map((fn, i) => (
+            <tr key={i} className={`hover:bg-perf-hover transition-colors ${i % 2 !== 0 ? 'bg-perf-row-alt' : ''}`}>
+              <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[250px] overflow-hidden text-ellipsis whitespace-nowrap" title={fn.name}>
+                {fn.name}
+              </td>
+              <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text-dim text-xs">
+                {fn.module ?? '–'}
+              </td>
+              <td className={`px-3 py-2 border-t border-perf-surface/50 font-mono ${fn.p95 != null && fn.p95 > 100 ? 'text-err-text font-semibold' : 'text-perf-text'}`}>
+                {fn.p95 != null ? `${fn.p95}ms` : '–'}
+              </td>
+              <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono">
+                {fn.avg != null ? `${fn.avg}ms` : '–'}
+              </td>
+              <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono">
+                {fn.count ?? '–'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function HomeRefreshSection({ homeRefresh }: { homeRefresh: NonNullable<SessionInsights['home_refresh']> }) {
+  const start = homeRefresh.startSinceSessionStartMs;
+  const end = homeRefresh.endSinceSessionStartMs;
+  const span = homeRefresh.spanMs;
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-perf-text">Token 刷新窗口热点</h3>
+        {span != null && (
+          <span className="text-xs text-perf-muted">
+            {start != null ? `${Math.round(start)}ms` : '?'} → {end != null ? `${Math.round(end)}ms` : '?'}（持续 {Math.round(span)}ms）
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-perf-muted mb-3">刷新窗口内占用 JS 线程最多的函数，是超标原因的直接线索。</p>
+      <InsightFnTable fns={homeRefresh.topFunctions} />
+    </div>
+  );
+}
+
+function JsBlockSection({ jsblock }: { jsblock: NonNullable<SessionInsights['jsblock']> }) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-perf-text">JS 线程阻塞</h3>
+        <span className="text-xs text-perf-muted">阈值 {jsblock.minDriftMs ?? 200}ms，共 {jsblock.topWindows.length} 次</span>
+      </div>
+      <p className="text-xs text-perf-muted mb-3">JS 线程被长时间占用，导致 UI 无法响应。每条展示阻塞时长和当时最慢函数。</p>
+      <div className="flex flex-col gap-2">
+        {jsblock.topWindows.map((w, i) => (
+          <div key={i} className="bg-perf-card border border-perf-surface rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-semibold text-err-text">阻塞 {w.span != null ? `${Math.round(w.span)}ms` : '?'}</span>
+              {w.jsblock?.name && (
+                <span className="text-[11px] text-perf-muted font-mono">{w.jsblock.name}</span>
+              )}
+            </div>
+            {w.topFunctions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {w.topFunctions.slice(0, 3).map((f, j) => (
+                  <span key={j} className="text-[11px] bg-perf-surface rounded px-1.5 py-0.5 font-mono text-perf-text-dim" title={f.name}>
+                    {f.name.split('.').pop()} {f.p95 != null ? `${f.p95}ms` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RepeatedCallsSection({ calls }: { calls: SessionInsights['repeated_calls'] }) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-perf-text">短时重复调用</h3>
+        <span className="text-xs text-perf-muted">100ms 内连续调用同一函数</span>
+      </div>
+      <p className="text-xs text-perf-muted mb-3">可能是不必要的重复渲染或逻辑循环。调用次数越多、总耗时越高，优先级越高。</p>
+      <div className="rounded-lg overflow-hidden border border-perf-surface">
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr>
+              {['函数', '模块', '连续调用次数', '总耗时'].map((h) => (
+                <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {calls.map((c, i) => (
+              <tr key={i} className={`hover:bg-perf-hover transition-colors ${i % 2 !== 0 ? 'bg-perf-row-alt' : ''}`}>
+                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[250px] overflow-hidden text-ellipsis whitespace-nowrap" title={c.name}>
+                  {c.name}
+                </td>
+                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text-dim text-xs">
+                  {c.module ?? '–'}
+                </td>
+                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono">
+                  {c.calls != null ? `${c.calls} 次` : '–'}
+                </td>
+                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono">
+                  {c.total_duration_ms != null ? `${c.total_duration_ms}ms` : '–'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 function SlowFunctions({ fnStats }: { fnStats: PerfFnStat[] }) {
   const top10 = fnStats.slice(0, 10);

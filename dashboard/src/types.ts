@@ -68,11 +68,49 @@ export interface CompareRow {
   avg_fc_threshold: number | null;
 }
 
+export interface InsightFunction {
+  name: string;
+  module: string | null;
+  p95: number | null;
+  avg: number | null;
+  count: number | null;
+}
+
+export interface RepeatedCall {
+  name: string;
+  file: string | null;
+  module: string | null;
+  calls: number | null;
+  total_duration_ms: number | null;
+}
+
+export interface JsBlockWindow {
+  span: number | null;
+  jsblock: { name: string; duration: number } | null;
+  topFunctions: InsightFunction[];
+}
+
+export interface HomeRefreshInsight {
+  startSinceSessionStartMs: number | null;
+  endSinceSessionStartMs: number | null;
+  spanMs: number | null;
+  topFunctions: InsightFunction[];
+}
+
+export interface SessionInsights {
+  repeated_calls: RepeatedCall[];
+  jsblock: { minDriftMs: number | null; topWindows: JsBlockWindow[] } | null;
+  low_fps: { thresholdFps: number | null; topWindows: { span: number | null; fps: { min: number; avg: number } | null; topFunctions: InsightFunction[] }[] } | null;
+  home_refresh: HomeRefreshInsight | null;
+  key_marks: { sessionStart: number; marks: Record<string, number | null> } | null;
+}
+
 export interface JobDetailResponse {
   job: PerfJob;
   runs: PerfRun[];
   fn_stats: PerfFnStat[];
   marks: PerfMark[];
+  insights: SessionInsights | null;
 }
 
 export interface PaginatedResponse<T> {

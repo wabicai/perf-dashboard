@@ -13,6 +13,8 @@
  *   GET  /api/marks           – marks for a session/job
  *   GET  /api/job/:job_id     – full job detail (runs, fn_stats, marks)
  *
+ *  Tables: perf_jobs, perf_runs, perf_fn_stats, perf_marks, perf_session_insights
+ *
  * Environment bindings (set in wrangler.toml / dashboard secrets):
  *   DB               – D1 database binding
  *   PERF_SECRET      – shared secret (optional; checked via x-perf-secret header)
@@ -182,6 +184,36 @@ async function handleIngestSession(request, env) {
           ),
       );
     }
+  }
+
+  // Upsert session insights (JSON blobs for complex derived data)
+  const hasInsights =
+    body.repeated_calls != null ||
+    body.jsblock != null ||
+    body.low_fps != null ||
+    body.home_refresh != null ||
+    body.key_marks != null;
+  if (hasInsights) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT OR REPLACE INTO perf_session_insights
+             (session_id, job_id, platform, repeated_calls, jsblock, low_fps, home_refresh, key_marks)
+           VALUES (?,?,?,?,?,?,?,?)`,
+        )
+        .bind(
+          body.session_id,
+          body.job_id,
+          body.platform ?? null,
+          body.repeated_calls != null
+            ? JSON.stringify(body.repeated_calls)
+            : null,
+          body.jsblock != null ? JSON.stringify(body.jsblock) : null,
+          body.low_fps != null ? JSON.stringify(body.low_fps) : null,
+          body.home_refresh != null ? JSON.stringify(body.home_refresh) : null,
+          body.key_marks != null ? JSON.stringify(body.key_marks) : null,
+        ),
+    );
   }
 
   // D1 batch limit is 100 statements; chunk if needed
@@ -475,11 +507,44 @@ async function handleJobDetail(jobId, env) {
 
   if (!jobResult) return err('Job not found', 404);
 
+  // Query session insights (pick first available session for this job)
+  const { results: insightRows } = await env.DB
+    .prepare(
+      `SELECT repeated_calls, jsblock, low_fps, home_refresh, key_marks
+       FROM perf_session_insights
+       WHERE job_id = ?
+       LIMIT 1`,
+    )
+    .bind(jobId)
+    .all();
+
+  const insights =
+    insightRows.length > 0
+      ? {
+          repeated_calls: insightRows[0].repeated_calls
+            ? JSON.parse(insightRows[0].repeated_calls)
+            : [],
+          jsblock: insightRows[0].jsblock
+            ? JSON.parse(insightRows[0].jsblock)
+            : null,
+          low_fps: insightRows[0].low_fps
+            ? JSON.parse(insightRows[0].low_fps)
+            : null,
+          home_refresh: insightRows[0].home_refresh
+            ? JSON.parse(insightRows[0].home_refresh)
+            : null,
+          key_marks: insightRows[0].key_marks
+            ? JSON.parse(insightRows[0].key_marks)
+            : null,
+        }
+      : null;
+
   return json({
     job: jobResult,
     runs: runsResult.results,
     fn_stats: fnStatsResult.results,
     marks: marksResult.results,
+    insights,
   });
 }
 
