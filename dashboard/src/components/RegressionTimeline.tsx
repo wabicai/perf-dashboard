@@ -78,7 +78,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
           setTotal(res.total);
         }
       })
-      .catch((e) => { if (!cancelled) setError(String(e?.message || '加载回归数据失败')); })
+      .catch((e) => { if (!cancelled) setError(String(e?.message || '加载性能超标数据失败')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [selectedPlatform, days, severityFilter, page]);
@@ -174,7 +174,7 @@ export function RegressionTimeline({ platforms, onJobClick }: Props) {
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
           <span className="text-xs text-perf-muted">
-            第 {page} 页，共 {totalPages} 页（{total} 个回归）
+            第 {page} 页，共 {totalPages} 页（{total} 个超标记录）
           </span>
           <div className="flex gap-2">
             <PaginationButton onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>

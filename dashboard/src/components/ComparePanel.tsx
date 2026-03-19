@@ -338,7 +338,7 @@ export function ComparePanel({ platforms }: Props) {
                           <span className="text-sm font-semibold" style={{ color }}>v{ver} <span className="text-perf-muted text-xs font-normal">{label}</span></span>
                           <span className="text-xs text-perf-muted">{format(new Date(lastSeen), 'MM/dd HH:mm')} 最新</span>
                         </div>
-                        <div className="text-xs text-perf-muted mb-2">{totalJobs} 次 CI · {regressions > 0 ? <span className="text-status-regression">{regressions} 次回归</span> : <span className="text-status-ok">无回归</span>}</div>
+                        <div className="text-xs text-perf-muted mb-2">{totalJobs} 次 CI · {regressions > 0 ? <span className="text-status-regression">{regressions} 次超标</span> : <span className="text-status-ok">无超标</span>}</div>
                         <div className="flex flex-wrap gap-2">
                           {rows.map((r) => (
                             <div key={r.platform} className="bg-perf-row-alt rounded-md px-2 py-1 text-xs">

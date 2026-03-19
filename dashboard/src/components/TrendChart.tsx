@@ -207,7 +207,7 @@ export function TrendChart({ platforms, onJobClick }: Props) {
       {/* Regression events list */}
       {chartData.filter((r) => r.regression).length > 0 && (
         <div className="mt-3 px-3 py-2 bg-perf-reg-bg border border-err-border rounded-lg text-xs flex flex-wrap items-center gap-1.5">
-          <span className="text-err-text font-semibold mr-2">⚠ 范围内检测到回归:</span>
+          <span className="text-err-text font-semibold mr-2">⚠ 范围内检测到性能超标:</span>
           {chartData
             .filter((r) => r.regression)
             .slice(0, 5)

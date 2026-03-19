@@ -39,8 +39,9 @@ function SummaryCard({ job, onClick }: { job: PerfJob; onClick?: () => void }) {
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') onClick?.(); }}
     >
-      <div className="text-[11px] text-perf-muted uppercase tracking-wider mb-1.5">
-        {platformLabel(job.platform)}
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[11px] text-perf-muted uppercase tracking-wider">{platformLabel(job.platform)}</span>
+        <span className="text-[10px] text-perf-text-faint">最新一次 CI</span>
       </div>
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-[22px] font-bold text-perf-text">
