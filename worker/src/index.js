@@ -252,7 +252,33 @@ async function handleSummary(env) {
      JOIN latest_jobs ON j.job_id = latest_jobs.max_job_id
      ORDER BY j.platform`,
   ).all();
-  return json(results);
+
+  // Fetch last 7 job statuses per platform for sparkline
+  const since7 = Date.now() - 7 * 86400_000;
+  const { results: recentRows } = await env.DB
+    .prepare(
+      `SELECT platform, job_id, status, started_at
+       FROM perf_jobs
+       WHERE started_at > ?
+       ORDER BY platform, started_at DESC`,
+    )
+    .bind(since7)
+    .all();
+
+  // Group by platform, keep last 7
+  const recentByPlatform = {};
+  for (const row of recentRows) {
+    if (!recentByPlatform[row.platform]) recentByPlatform[row.platform] = [];
+    if (recentByPlatform[row.platform].length < 7) {
+      recentByPlatform[row.platform].push({ job_id: row.job_id, status: row.status, started_at: row.started_at });
+    }
+  }
+
+  const enriched = results.map((r) => ({
+    ...r,
+    recentJobs: (recentByPlatform[r.platform] || []).reverse(), // oldest first
+  }));
+  return json(enriched);
 }
 
 async function handleTrend(request, env) {
@@ -478,6 +504,122 @@ async function handleMarks(request, env) {
   return json(results);
 }
 
+function mergeInsights(rows) {
+  if (!rows || rows.length === 0) return null;
+
+  const parsed = rows.map((r) => ({
+    repeated_calls: r.repeated_calls ? JSON.parse(r.repeated_calls) : [],
+    jsblock: r.jsblock ? JSON.parse(r.jsblock) : null,
+    low_fps: r.low_fps ? JSON.parse(r.low_fps) : null,
+    home_refresh: r.home_refresh ? JSON.parse(r.home_refresh) : null,
+    key_marks: r.key_marks ? JSON.parse(r.key_marks) : null,
+  }));
+
+  // repeated_calls: merge across sessions, sum calls, sort by calls desc
+  const rcMap = new Map();
+  for (const p of parsed) {
+    for (const rc of p.repeated_calls || []) {
+      if (!rcMap.has(rc.name)) {
+        rcMap.set(rc.name, { ...rc });
+      } else {
+        const e = rcMap.get(rc.name);
+        e.calls = (e.calls || 0) + (rc.calls || 0);
+        e.total_duration_ms = (e.total_duration_ms || 0) + (rc.total_duration_ms || 0);
+      }
+    }
+  }
+  const repeated_calls = [...rcMap.values()]
+    .sort((a, b) => (b.calls || 0) - (a.calls || 0))
+    .slice(0, 20);
+
+  // jsblock: merge all topWindows, sort by span desc, top 5
+  const allJsWindows = [];
+  let minDriftMs = null;
+  let jsblockSessionCount = 0;
+  for (const p of parsed) {
+    if (p.jsblock) {
+      jsblockSessionCount++;
+      if (minDriftMs === null) minDriftMs = p.jsblock.minDriftMs;
+      for (const w of p.jsblock.topWindows || []) allJsWindows.push(w);
+    }
+  }
+  const jsblock =
+    allJsWindows.length > 0
+      ? {
+          minDriftMs,
+          sessionCount: jsblockSessionCount,
+          topWindows: allJsWindows
+            .sort((a, b) => (b.span || 0) - (a.span || 0))
+            .slice(0, 5),
+        }
+      : null;
+
+  // low_fps: merge all topWindows, sort by fps.min asc (worst first), top 3
+  const allFpsWindows = [];
+  let thresholdFps = null;
+  let lowFpsSessionCount = 0;
+  for (const p of parsed) {
+    if (p.low_fps) {
+      lowFpsSessionCount++;
+      if (thresholdFps === null) thresholdFps = p.low_fps.thresholdFps;
+      for (const w of p.low_fps.topWindows || []) allFpsWindows.push(w);
+    }
+  }
+  const low_fps =
+    allFpsWindows.length > 0
+      ? {
+          thresholdFps,
+          sessionCount: lowFpsSessionCount,
+          topWindows: allFpsWindows
+            .sort((a, b) => (a.fps?.min ?? 999) - (b.fps?.min ?? 999))
+            .slice(0, 3),
+        }
+      : null;
+
+  // home_refresh: pick the session with most topFunctions, average spanMs
+  const hrCandidates = parsed.filter(
+    (p) => p.home_refresh && (p.home_refresh.topFunctions?.length ?? 0) > 0,
+  );
+  let home_refresh = null;
+  if (hrCandidates.length > 0) {
+    const spans = hrCandidates
+      .map((p) => p.home_refresh.spanMs)
+      .filter((s) => s != null);
+    const avgSpan =
+      spans.length > 0
+        ? Math.round(spans.reduce((a, b) => a + b, 0) / spans.length)
+        : null;
+    const best = hrCandidates.sort(
+      (a, b) => b.home_refresh.topFunctions.length - a.home_refresh.topFunctions.length,
+    )[0];
+    home_refresh = { ...best.home_refresh, spanMs: avgSpan };
+  }
+
+  // key_marks: average timing across sessions
+  const kmCandidates = parsed.filter((p) => p.key_marks?.marks);
+  let key_marks = null;
+  if (kmCandidates.length > 0) {
+    const allNames = new Set(kmCandidates.flatMap((p) => Object.keys(p.key_marks.marks)));
+    const mergedMarks = {};
+    for (const name of allNames) {
+      const vals = kmCandidates
+        .map((p) => p.key_marks.marks[name])
+        .filter((v) => v != null);
+      mergedMarks[name] =
+        vals.length > 0
+          ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+          : null;
+    }
+    key_marks = {
+      sessionStart: kmCandidates[0].key_marks.sessionStart,
+      marks: mergedMarks,
+      sessionCount: kmCandidates.length,
+    };
+  }
+
+  return { sessionCount: parsed.length, repeated_calls, jsblock, low_fps, home_refresh, key_marks };
+}
+
 async function handleJobDetail(jobId, env) {
   // Batch query: job + runs + fn_stats + marks
   const [jobResult, runsResult, fnStatsResult, marksResult] = await Promise.all([
@@ -507,37 +649,17 @@ async function handleJobDetail(jobId, env) {
 
   if (!jobResult) return err('Job not found', 404);
 
-  // Query session insights (pick first available session for this job)
+  // Query insights for ALL sessions of this job, then merge
   const { results: insightRows } = await env.DB
     .prepare(
-      `SELECT repeated_calls, jsblock, low_fps, home_refresh, key_marks
+      `SELECT session_id, repeated_calls, jsblock, low_fps, home_refresh, key_marks
        FROM perf_session_insights
-       WHERE job_id = ?
-       LIMIT 1`,
+       WHERE job_id = ?`,
     )
     .bind(jobId)
     .all();
 
-  const insights =
-    insightRows.length > 0
-      ? {
-          repeated_calls: insightRows[0].repeated_calls
-            ? JSON.parse(insightRows[0].repeated_calls)
-            : [],
-          jsblock: insightRows[0].jsblock
-            ? JSON.parse(insightRows[0].jsblock)
-            : null,
-          low_fps: insightRows[0].low_fps
-            ? JSON.parse(insightRows[0].low_fps)
-            : null,
-          home_refresh: insightRows[0].home_refresh
-            ? JSON.parse(insightRows[0].home_refresh)
-            : null,
-          key_marks: insightRows[0].key_marks
-            ? JSON.parse(insightRows[0].key_marks)
-            : null,
-        }
-      : null;
+  const insights = mergeInsights(insightRows);
 
   return json({
     job: jobResult,
@@ -621,6 +743,31 @@ export default {
       // Job detail: /api/job/:job_id
       const jobMatch = path.match(/^\/api\/job\/(.+)$/);
       if (jobMatch) return handleJobDetail(decodeURIComponent(jobMatch[1]), env);
+
+      if (path === '/api/fn/trend') {
+        const fnName = url.searchParams.get('fn_name') || '';
+        const platform = url.searchParams.get('platform') || null;
+        const days = Math.min(Number(url.searchParams.get('days') || 30), 90);
+        if (!fnName) return err('Missing fn_name');
+        const since = Date.now() - days * 86400_000;
+        const { results } = await env.DB
+          .prepare(
+            `SELECT j.started_at, j.job_id,
+                    ROUND(f.avg_p95_ms, 1) AS p95_ms,
+                    ROUND(f.avg_avg_ms, 1) AS avg_ms,
+                    ROUND(f.avg_call_count, 0) AS call_count
+             FROM perf_fn_stats f
+             JOIN perf_jobs j ON f.job_id = j.job_id
+             WHERE f.fn_name = ?
+               AND (? IS NULL OR f.platform = ?)
+               AND j.started_at > ?
+             ORDER BY j.started_at ASC
+             LIMIT 60`,
+          )
+          .bind(fnName, platform, platform, since)
+          .all();
+        return json(results);
+      }
 
       if (path === '/api/health') {
         return json({ ok: true, ts: Date.now() });

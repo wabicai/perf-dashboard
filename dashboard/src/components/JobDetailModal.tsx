@@ -5,7 +5,7 @@ import { ErrorBanner } from './ui/ErrorBanner';
 import { Skeleton } from './ui/Skeleton';
 import { Chip } from './ui/Chip';
 import { platformLabel, statusLabel } from '../constants';
-import type { JobDetailResponse, PerfRun, PerfFnStat, SessionInsights, InsightFunction } from '../types';
+import type { JobDetailResponse, PerfRun, PerfFnStat, SessionInsights, InsightFunction, LowFps, KeyMarks } from '../types';
 
 interface Props {
   jobId: string;
@@ -35,12 +35,12 @@ export function JobDetailModal({ jobId, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-12 px-4 overflow-y-auto animate-backdrop-in"
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4 animate-backdrop-in"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-perf-bg border border-perf-surface rounded-xl w-full max-w-[900px] mb-12 shadow-2xl animate-modal-in">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-perf-surface">
+      <div className="bg-perf-bg border border-perf-surface rounded-xl w-full max-w-[900px] shadow-2xl animate-modal-in flex flex-col max-h-[90vh]">
+        {/* Header — fixed */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-perf-surface flex-shrink-0">
           <div>
             <h2 className="text-lg font-bold text-perf-text m-0">任务详情</h2>
             <span className="text-xs text-perf-muted font-mono">{jobId}</span>
@@ -53,8 +53,8 @@ export function JobDetailModal({ jobId, onClose }: Props) {
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6">
+        {/* Body — scrollable */}
+        <div className="p-6 overflow-y-auto flex-1">
           {loading && (
             <div className="flex flex-col gap-4">
               <Skeleton className="h-20 w-full" />
@@ -69,25 +69,42 @@ export function JobDetailModal({ jobId, onClose }: Props) {
               {/* Job summary */}
               <JobSummary job={data.job} />
 
-              {/* Home refresh window hotspot — most targeted info */}
+              {/* Key marks timeline — when did each phase happen */}
+              {data.insights?.key_marks && (
+                <KeyMarksSection keyMarks={data.insights.key_marks} />
+              )}
+
+              {/* Home refresh window hotspot */}
               {data.insights?.home_refresh && data.insights.home_refresh.topFunctions.length > 0 && (
                 <HomeRefreshSection homeRefresh={data.insights.home_refresh} />
               )}
-
-              {/* Top slow functions — overall session */}
-              {data.fn_stats.length > 0 && <SlowFunctions fnStats={data.fn_stats} />}
 
               {/* JS thread block events */}
               {data.insights?.jsblock && data.insights.jsblock.topWindows.length > 0 && (
                 <JsBlockSection jsblock={data.insights.jsblock} />
               )}
 
-              {/* Rapid repeated calls */}
-              {data.insights?.repeated_calls && data.insights.repeated_calls.length > 0 && (
-                <RepeatedCallsSection calls={data.insights.repeated_calls} />
+              {/* Low FPS windows */}
+              {data.insights?.low_fps && data.insights.low_fps.topWindows.length > 0 && (
+                <LowFpsSection lowFps={data.insights.low_fps} />
               )}
 
-              {/* Per-run raw data — detail last */}
+              {/* Rapid repeated calls */}
+              {data.insights?.repeated_calls && data.insights.repeated_calls.length > 0 && (
+                <RepeatedCallsSection calls={data.insights.repeated_calls} sessionCount={data.insights.sessionCount} />
+              )}
+
+              {/* No insights available for this platform */}
+              {!data.insights && (
+                <div className="text-xs text-perf-muted bg-perf-card border border-perf-surface rounded-lg p-4">
+                  此平台暂无 JS 线程分析数据（jsblock / low_fps / key_marks 需要 performance-server 采集支持）。
+                </div>
+              )}
+
+              {/* Top slow functions — overall session aggregate */}
+              {data.fn_stats.length > 0 && <SlowFunctions fnStats={data.fn_stats} />}
+
+              {/* Per-run raw data */}
               {data.runs.length > 0 && <RunsTable runs={data.runs} job={data.job} />}
             </div>
           )}
@@ -223,7 +240,7 @@ function InsightFnTable({ fns }: { fns: InsightFunction[] }) {
         <tbody>
           {fns.map((fn, i) => (
             <tr key={i} className={`hover:bg-perf-hover transition-colors ${i % 2 !== 0 ? 'bg-perf-row-alt' : ''}`}>
-              <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[250px] overflow-hidden text-ellipsis whitespace-nowrap" title={fn.name}>
+              <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[300px] overflow-hidden text-ellipsis whitespace-nowrap" title={fn.name}>
                 {fn.name}
               </td>
               <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text-dim text-xs">
@@ -267,11 +284,17 @@ function HomeRefreshSection({ homeRefresh }: { homeRefresh: NonNullable<SessionI
 }
 
 function JsBlockSection({ jsblock }: { jsblock: NonNullable<SessionInsights['jsblock']> }) {
+  const maxSpan = Math.max(...jsblock.topWindows.map((w) => w.span ?? 0));
+  const count = jsblock.topWindows.length;
+  const sessionCount = jsblock.sessionCount ?? 1;
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
         <h3 className="text-sm font-semibold text-perf-text">JS 线程阻塞</h3>
-        <span className="text-xs text-perf-muted">阈值 {jsblock.minDriftMs ?? 200}ms，共 {jsblock.topWindows.length} 次</span>
+        <span className="text-xs text-perf-muted">
+          最长阻塞 {Math.round(maxSpan)}ms，共 {count} 次
+          {sessionCount > 1 && `（${sessionCount} 轮合并）`}
+        </span>
       </div>
       <p className="text-xs text-perf-muted mb-3">JS 线程被长时间占用，导致 UI 无法响应。每条展示阻塞时长和当时最慢函数。</p>
       <div className="flex flex-col gap-2">
@@ -299,12 +322,15 @@ function JsBlockSection({ jsblock }: { jsblock: NonNullable<SessionInsights['jsb
   );
 }
 
-function RepeatedCallsSection({ calls }: { calls: SessionInsights['repeated_calls'] }) {
+function RepeatedCallsSection({ calls, sessionCount }: { calls: SessionInsights['repeated_calls']; sessionCount?: number }) {
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
         <h3 className="text-sm font-semibold text-perf-text">短时重复调用</h3>
-        <span className="text-xs text-perf-muted">100ms 内连续调用同一函数</span>
+        <span className="text-xs text-perf-muted">
+          100ms 内连续调用同一函数
+          {sessionCount && sessionCount > 1 ? `（${sessionCount} 轮合并）` : null}
+        </span>
       </div>
       <p className="text-xs text-perf-muted mb-3">可能是不必要的重复渲染或逻辑循环。调用次数越多、总耗时越高，优先级越高。</p>
       <div className="rounded-lg overflow-hidden border border-perf-surface">
@@ -321,7 +347,7 @@ function RepeatedCallsSection({ calls }: { calls: SessionInsights['repeated_call
           <tbody>
             {calls.map((c, i) => (
               <tr key={i} className={`hover:bg-perf-hover transition-colors ${i % 2 !== 0 ? 'bg-perf-row-alt' : ''}`}>
-                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[250px] overflow-hidden text-ellipsis whitespace-nowrap" title={c.name}>
+                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[300px] overflow-hidden text-ellipsis whitespace-nowrap" title={c.name}>
                   {c.name}
                 </td>
                 <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text-dim text-xs">
@@ -347,12 +373,17 @@ function SlowFunctions({ fnStats }: { fnStats: PerfFnStat[] }) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-perf-text mb-3">最慢函数 TOP 10</h3>
+      <div className="flex items-baseline gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-perf-text">最慢函数 TOP 10</h3>
+        <span className="text-xs text-perf-muted">全 session 聚合均值</span>
+      </div>
+      <p className="text-xs text-perf-muted mb-3">整个测试 session 中 p95 最高的函数，与上方"刷新窗口热点"不同，这里统计全程所有调用。</p>
       <div className="rounded-lg overflow-hidden border border-perf-surface">
-        <table className="w-full border-collapse text-[13px]">
+        <table className="w-full table-fixed border-collapse text-[13px]">
           <thead>
             <tr>
-              {['函数', '模块', 'p95 ms', '平均 ms', '调用次数'].map((h) => (
+              <th className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider w-[40%]">函数</th>
+              {['模块', 'p95 ms', '平均 ms', '调用次数'].map((h) => (
                 <th key={h} className="bg-perf-surface text-perf-muted text-left px-3 py-2 text-[11px] uppercase tracking-wider">
                   {h}
                 </th>
@@ -362,7 +393,7 @@ function SlowFunctions({ fnStats }: { fnStats: PerfFnStat[] }) {
           <tbody>
             {top10.map((fn, i) => (
               <tr key={i} className={`hover:bg-perf-hover transition-colors ${i % 2 !== 0 ? 'bg-perf-row-alt' : ''}`}>
-                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[250px] overflow-hidden text-ellipsis whitespace-nowrap" title={fn.fn_name}>
+                <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text font-mono text-xs max-w-[300px] overflow-hidden text-ellipsis whitespace-nowrap" title={fn.fn_name}>
                   {fn.fn_name}
                 </td>
                 <td className="px-3 py-2 border-t border-perf-surface/50 text-perf-text-dim text-xs">
@@ -381,6 +412,199 @@ function SlowFunctions({ fnStats }: { fnStats: PerfFnStat[] }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+const KEY_MARK_PHASES: Record<string, string> = {
+  // 应用启动
+  'app:start': '应用启动',
+
+  // Home 生命周期
+  'Home:overview:mount': 'Home 挂载',
+  'Home:overview:unmount': 'Home 卸载',
+  'Home:tabs:containerKey:init': 'Tab 初始化',
+  'Home:tabs:containerKey:change': 'Tab 切换',
+  'Home:done:tokens': 'Home 渲染完成',
+
+  // KPI 核心
+  'Home:refresh:start:tokens': '刷新开始',
+  'Home:refresh:done:tokens': '刷新完成 ✓',
+
+  // 审批
+  'Home:approvals:fetch:start': '审批拉取开始',
+  'Home:approvals:fetch:done': '审批拉取完成',
+
+  // 本地数据加载
+  'Home:tokens:rawData:prefetch:start': '本地预取开始',
+  'Home:tokens:rawData:prefetch:done': '本地预取完成',
+  'Home:tokens:rawData:load:start': '本地数据加载开始',
+  'Home:tokens:rawData:load:done': '本地数据加载完成',
+  'Home:tokens:rawData:customTokens:done': '自定义 Token 完成',
+  'Home:tokens:rawData:riskTokenManagement:done': '风险管理完成',
+  'Home:tokens:rawData:localTokens:done': '本地 Token 完成',
+  'Home:tokens:rawData:aggregateToken:done': '数据聚合完成',
+
+  // WalletConfigSync
+  'Home:tokens:walletConfigSync:start': '钱包配置同步开始',
+  'Home:tokens:walletConfigSync:done': '钱包配置同步完成',
+
+  // 全网络请求
+  'Home:tokens:allnet:rawData:start': '全网络请求开始',
+  'Home:tokens:allnet:rawData:done': '全网络请求完成',
+
+  // onStarted 流水线
+  'Home:tokens:onStarted:start': 'onStarted 开始',
+  'Home:tokens:onStarted:rawData:start': 'onStarted 数据开始',
+  'Home:tokens:onStarted:rawData:done': 'onStarted 数据完成',
+  'Home:tokens:onStarted:done': 'onStarted 完成',
+
+  // 后处理
+  'Home:tokens:postFetch:start': '数据后处理开始',
+  'Home:tokens:postFetch:done': '数据后处理完成',
+  'Home:tokens:aggregateBuild:start': '聚合构建开始',
+  'Home:tokens:aggregateBuild:done': '聚合构建完成',
+  'Home:tokens:mergeAllTokens:start': 'Token 合并开始',
+  'Home:tokens:mergeAllTokens:done': 'Token 合并完成',
+
+  // BTC 新地址
+  'Home:btcFreshAddress:sync:scheduled': 'BTC 新地址计划同步',
+  'Home:btcFreshAddress:sync:start': 'BTC 新地址同步开始',
+  'Home:btcFreshAddress:sync:done': 'BTC 新地址同步完成',
+
+  // DeFi
+  'Home:defi:allnet:fetch:start': 'DeFi 全网络拉取开始',
+  'Home:defi:allnet:fetch:done': 'DeFi 全网络拉取完成',
+  'Home:defi:allnet:rawData:start': 'DeFi 全网络数据开始',
+  'Home:defi:allnet:rawData:done': 'DeFi 全网络数据完成',
+  'Home:defi:fetch:start': 'DeFi 拉取开始',
+  'Home:defi:fetch:done': 'DeFi 拉取完成',
+
+  // Perps
+  'Home:perpsConfig:update:start': 'Perps 配置更新开始',
+  'Home:perpsConfig:update:done': 'Perps 配置更新完成',
+
+  // Bootstrap
+  'Bootstrap:fetchCurrencyList:start': '货币列表拉取开始',
+  'Bootstrap:fetchCurrencyList:done': '货币列表拉取完成',
+  'Bootstrap:marketBasicConfig:start': '市场配置开始',
+  'Bootstrap:marketBasicConfig:done': '市场配置完成',
+  'Bootstrap:perpsConfig:update:start': 'Perps Bootstrap 开始',
+  'Bootstrap:perpsConfig:update:done': 'Perps Bootstrap 完成',
+  'Bootstrap:appUpdate:autoCheck:start': 'App 更新检查开始',
+  'Bootstrap:appUpdate:autoCheck:done': 'App 更新检查完成',
+
+  // AllNet
+  'AllNet:useAllNetworkRequests:start': 'AllNet 入口',
+  'AllNet:getAllNetworkAccounts:prefetch:start': 'AllNet 账户预取开始',
+  'AllNet:getAllNetworkAccounts:prefetch:done': 'AllNet 账户预取完成',
+  'AllNet:getAllNetworkAccounts:start': 'AllNet 账户获取开始',
+  'AllNet:getAllNetworkAccounts:done': 'AllNet 账户获取完成',
+  'AllNet:tokens:onStarted:start': 'AllNet Token onStarted',
+  'AllNet:tokens:onStarted:afterGetRawData': 'AllNet Token 数据后',
+  'AllNet:tokens:onStarted:afterWalletConfigSync': 'AllNet 钱包配置后',
+  'AllNet:cacheRequests:start': 'AllNet 缓存请求开始',
+  'AllNet:cacheRequests:done': 'AllNet 缓存请求完成',
+  'AllNet:cacheData:start': 'AllNet 缓存数据开始',
+  'AllNet:cacheData:done': 'AllNet 缓存数据完成',
+  'AllNet:requests:start': 'AllNet 网络请求开始',
+  'AllNet:requests:done': 'AllNet 网络请求完成',
+  'AllNet:request:start': 'AllNet 单次请求开始',
+  'AllNet:request:done': 'AllNet 单次请求完成',
+  'AllNet:request:timeout': 'AllNet 请求超时',
+  'AllNet:request:lateDone': 'AllNet 请求延迟完成',
+  'AllNet:indexedRequests:start': 'AllNet 索引请求开始',
+  'AllNet:indexedRequests:done': 'AllNet 索引请求完成',
+  'AllNet:notIndexedRequests:start': 'AllNet 非索引请求开始',
+  'AllNet:notIndexedRequests:done': 'AllNet 非索引请求完成',
+
+  // Token
+  'Token:fetchAccountTokens:done': '账户 Token 拉取完成',
+};
+
+function KeyMarksSection({ keyMarks }: { keyMarks: NonNullable<KeyMarks> }) {
+  const entries = Object.entries(keyMarks.marks)
+    .filter(([, v]) => v != null)
+    .sort(([, a], [, b]) => (a as number) - (b as number));
+
+  if (entries.length === 0) return null;
+
+  const max = entries[entries.length - 1][1] as number;
+
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-perf-text">关键时间点</h3>
+        {keyMarks.sessionCount && keyMarks.sessionCount > 1 && (
+          <span className="text-xs text-perf-muted">{keyMarks.sessionCount} 轮均值</span>
+        )}
+      </div>
+      <p className="text-xs text-perf-muted mb-3">各关键里程碑相对 session 开始的时间，可用于定位刷新延迟的具体阶段。</p>
+      <div className="flex flex-col gap-1">
+        {entries.map(([name, ms]) => {
+          const t = ms as number;
+          const pct = max > 0 ? (t / max) * 100 : 0;
+          const label = KEY_MARK_PHASES[name] || name.split(':').slice(-1)[0];
+          const isKeyMilestone = name === 'Home:refresh:start:tokens' || name === 'Home:refresh:done:tokens';
+          return (
+            <div key={name} className={`flex items-center gap-2 rounded px-2 py-1 ${isKeyMilestone ? 'bg-perf-accent/5' : ''}`}>
+              <div className="w-52 shrink-0 min-w-0">
+                <div className={`text-[11px] truncate ${isKeyMilestone ? 'text-perf-text font-medium' : 'text-perf-muted'}`}>{label}</div>
+                <div className="text-[10px] text-perf-text-faint font-mono truncate" title={name}>{name}</div>
+              </div>
+              <div className="flex-1 bg-perf-surface rounded-full h-1.5 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${isKeyMilestone ? 'bg-perf-accent' : 'bg-perf-muted/40'}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <div className={`text-[11px] font-mono w-16 text-right shrink-0 ${isKeyMilestone ? 'text-perf-accent font-semibold' : 'text-perf-muted'}`}>
+                {t}ms
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LowFpsSection({ lowFps }: { lowFps: NonNullable<LowFps> }) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-1">
+        <h3 className="text-sm font-semibold text-perf-text">低帧率窗口</h3>
+        <span className="text-xs text-perf-muted">
+          阈值 {lowFps.thresholdFps ?? 10} FPS，共 {lowFps.topWindows.length} 个卡顿窗口
+          {lowFps.sessionCount && lowFps.sessionCount > 1 ? `（${lowFps.sessionCount} 轮合并）` : null}
+        </span>
+      </div>
+      <p className="text-xs text-perf-muted mb-3">帧率低于阈值的时间窗口，及窗口内最耗时的函数，是 UI 卡顿的直接原因。</p>
+      <div className="flex flex-col gap-2">
+        {lowFps.topWindows.map((w, i) => (
+          <div key={i} className="bg-perf-card border border-perf-surface rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              {w.fps && (
+                <span className="text-xs font-semibold text-err-text">
+                  {w.fps.min.toFixed(1)} FPS min / {w.fps.avg.toFixed(1)} FPS avg
+                </span>
+              )}
+              {w.span != null && (
+                <span className="text-[11px] text-perf-muted">{Math.round(w.span)}ms 窗口</span>
+              )}
+            </div>
+            {w.topFunctions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {w.topFunctions.slice(0, 3).map((f, j) => (
+                  <span key={j} className="text-[11px] bg-perf-surface rounded px-1.5 py-0.5 font-mono text-perf-text-dim" title={f.name}>
+                    {f.name.split('.').pop()} {f.p95 != null ? `${f.p95}ms` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

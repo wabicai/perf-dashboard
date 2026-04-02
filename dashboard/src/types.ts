@@ -22,6 +22,7 @@ export interface PerfJob {
   delta_pct_start: number | null;
   delta_pct_span: number | null;
   created_at?: number;
+  recentJobs?: RecentJob[];
 }
 
 export interface PerfRun {
@@ -76,6 +77,30 @@ export interface InsightFunction {
   count: number | null;
 }
 
+export interface KeyMarks {
+  sessionStart: number | null;
+  sessionCount?: number;
+  marks: Record<string, number | null>;
+}
+
+export interface LowFpsWindow {
+  span: number | null;
+  fps: { min: number; avg: number } | null;
+  topFunctions: InsightFunction[];
+}
+
+export interface LowFps {
+  thresholdFps: number | null;
+  topWindows: LowFpsWindow[];
+  sessionCount?: number;
+}
+
+export interface RecentJob {
+  job_id: string;
+  status: string;
+  started_at: number;
+}
+
 export interface RepeatedCall {
   name: string;
   file: string | null;
@@ -98,11 +123,12 @@ export interface HomeRefreshInsight {
 }
 
 export interface SessionInsights {
+  sessionCount?: number;
   repeated_calls: RepeatedCall[];
-  jsblock: { minDriftMs: number | null; topWindows: JsBlockWindow[] } | null;
-  low_fps: { thresholdFps: number | null; topWindows: { span: number | null; fps: { min: number; avg: number } | null; topFunctions: InsightFunction[] }[] } | null;
+  jsblock: { minDriftMs: number | null; topWindows: JsBlockWindow[]; sessionCount?: number } | null;
+  low_fps: LowFps | null;
   home_refresh: HomeRefreshInsight | null;
-  key_marks: { sessionStart: number; marks: Record<string, number | null> } | null;
+  key_marks: KeyMarks | null;
 }
 
 export interface JobDetailResponse {
@@ -134,4 +160,4 @@ export interface VersionSummary {
   regression_count: number;
 }
 
-export type NavTab = 'trend' | 'compare' | 'functions' | 'regressions';
+export type NavTab = 'trend' | 'compare' | 'functions' | 'history';

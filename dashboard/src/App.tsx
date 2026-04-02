@@ -3,20 +3,20 @@ import { api } from './api';
 import { TrendChart } from './components/TrendChart';
 import { ComparePanel } from './components/ComparePanel';
 import { FunctionTable } from './components/FunctionTable';
-import { RegressionTimeline } from './components/RegressionTimeline';
+import { HistoryTable } from './components/HistoryTable';
 import { JobDetailModal } from './components/JobDetailModal';
 import { ErrorBanner } from './components/ui/ErrorBanner';
 import { Skeleton } from './components/ui/Skeleton';
 import { platformLabel, statusLabel } from './constants';
-import type { PerfJob } from './types';
+import type { PerfJob, RecentJob } from './types';
 
-type Tab = 'trend' | 'compare' | 'functions' | 'regressions';
+type Tab = 'trend' | 'compare' | 'functions' | 'history';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'trend', label: '趋势' },
   { id: 'compare', label: '对比' },
   { id: 'functions', label: '函数' },
-  { id: 'regressions', label: '性能超标' },
+  { id: 'history', label: '历史记录' },
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -60,6 +60,36 @@ function SummaryCard({ job, onClick }: { job: PerfJob; onClick?: () => void }) {
       </div>
       {job.app_version && (
         <div className="text-[10px] text-perf-text-faint mt-1">{job.app_version}</div>
+      )}
+      {/* Recent job history dots */}
+      {job.recentJobs && job.recentJobs.length > 0 && (
+        <div className="mt-2">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-perf-muted mr-1">近 7 次</span>
+            {job.recentJobs.map((j: RecentJob, idx: number) => (
+              <div
+                key={idx}
+                title={`${j.job_id}: ${statusLabel(j.status)}`}
+                className={`w-2 h-2 rounded-full cursor-default shrink-0 ${
+                  j.status === 'ok' ? 'bg-status-ok' :
+                  j.status === 'regression' ? 'bg-status-regression' :
+                  'bg-status-failed'
+                }`}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="flex items-center gap-1 text-[10px] text-perf-muted">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-ok inline-block shrink-0" />正常
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-perf-muted">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-regression inline-block shrink-0" />超标
+            </span>
+            <span className="flex items-center gap-1 text-[10px] text-perf-muted">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-failed inline-block shrink-0" />失败
+            </span>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -156,7 +186,7 @@ export function App() {
         {tab === 'trend' && <TrendChart platforms={platforms} onJobClick={handleJobClick} />}
         {tab === 'compare' && <ComparePanel platforms={platforms} onJobClick={handleJobClick} />}
         {tab === 'functions' && <FunctionTable platforms={platforms} />}
-        {tab === 'regressions' && <RegressionTimeline platforms={platforms} onJobClick={handleJobClick} />}
+        {tab === 'history' && <HistoryTable platforms={platforms} onJobClick={handleJobClick} />}
       </div>
 
       {/* Job Detail Modal */}
